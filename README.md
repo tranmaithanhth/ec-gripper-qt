@@ -138,3 +138,13 @@ GitHub Actions có sẵn tại `.github/workflows/tests.yml` để chạy bộ k
 Chưa đặt giấy phép phân phối vì quyền phân phối driver gốc cần do chủ repository xác định.
 # ec-gripper-qt
 # ec-gripper-qt
+
+
+## USB port diagnostics update
+
+- The port picker now stays accessible in Simulation. The mode banner and Connect simulation / Connect hardware labels identify which connection is used.
+- Refresh scans pyserial and Linux ttyUSB/ttyACM nodes plus by-id/by-path aliases. CH340/CH341 VID:PID 1a86:7523 is highlighted as a candidate, not proof of Waveshare identity.
+- Unfocused/disconnected lists refresh every two seconds. A typed path is preserved. Scanning never opens a serial port or sends commands.
+- **Diagnose USB → Copy report** collects visible ports, permissions, USB inventory and relevant kernel messages. Restricted kernel logs are reported honestly; it never runs sudo or changes drivers.
+- CLI alternative, inside the venv: `python tools/diagnose_ports.py`. Add `--port /dev/ttyUSB0` to check a selected device node.
+- If Simulation was already connected, Disconnect before selecting Real EC-A4310. Missing ttyUSB nodes require resolving the Linux USB/driver conflict; a GUI change cannot recreate them.

@@ -1,11 +1,11 @@
-import sys, json, queue, time
+import sys, json, queue, time, threading
 from pathlib import Path
 from dataclasses import asdict
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,
- QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox)
-from serial.tools import list_ports
+ QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog)
+from ports import discover, diagnose
 from control import Settings
 from backend import Backend
 from visual import JawView
@@ -31,6 +31,7 @@ class Window(QMainWindow):
     def __init__(self):
         super().__init__(); self.setWindowTitle('EC Gripper Qt • Simulation / Real motor'); self.resize(1080,980)
         self.events=queue.Queue(); self.backend=Backend(self.events); self.backend.start()
+        self._ports_initialized=False; self._connecting=False; self._port_signature=None; self._diagnosing=False
         self.fb=None; self.ready=False; self.active=False; self.pending=False; self.sync=False
         self.setStyleSheet('QGroupBox {font-weight:bold;} QPushButton {padding:7px;}')
         root=QWidget(); self.setCentralWidget(root); layout=QVBoxLayout(root)
@@ -46,6 +47,8 @@ class Window(QMainWindow):
         self.mid=QSpinBox(); self.mid.setRange(0,2046); self.mid.setValue(0); self.mid.setSpecialValueText('Auto ID'); row.addWidget(self.mid)
         self.connect_btn=QPushButton('Connect'); self.connect_btn.clicked.connect(self.connect_motor); row.addWidget(self.connect_btn)
         self.disconnect_btn=QPushButton('Disconnect'); self.disconnect_btn.clicked.connect(lambda:self.backend.request('disconnect')); row.addWidget(self.disconnect_btn)
+        self.diagnostic_btn=QPushButton('Diagnose USB'); self.diagnostic_btn.clicked.connect(self.diagnose_usb); row.addWidget(self.diagnostic_btn)
+        self.port_hint=QLabel(); self.port_hint.setWordWrap(True); layout.addWidget(self.port_hint)
         self.refresh_ports()
         groups=QHBoxLayout(); layout.addLayout(groups)
         calibration=QGroupBox('Calibration — measured motor angles'); groups.addWidget(calibration)
@@ -80,23 +83,55 @@ class Window(QMainWindow):
         self.mode.currentIndexChanged.connect(self.mode_changed)
         self.mode_changed()
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll); self.timer.start(50)
+        self.port_timer=QTimer(self); self.port_timer.timeout.connect(self.auto_refresh_ports); self.port_timer.start(2000)
     def spin(self,form,name,lo,hi,value,decimals):
         s=QDoubleSpinBox(); s.setDecimals(decimals); s.setRange(lo,hi); s.setValue(value); s.setSingleStep(10**-decimals); form.addRow(name,s); return s
-    def refresh_ports(self):
-        old=self.port.currentText(); self.port.clear()
-        for p in sorted(list_ports.comports(),key=lambda p:p.device):
-            if not self.allports.isChecked() and p.device.startswith('/dev/ttyS'): continue
-            details=f'{p.device} | {p.description}'
-            self.port.addItem(details,p.device)
-            self.port.setItemData(self.port.count()-1,f'{p.hwid}\nSerial: {p.serial_number}',Qt.ToolTipRole)
-        if old: self.port.setCurrentText(old)
+    def refresh_ports(self, automatic=False):
+        if automatic and (self.ready or self._connecting or self.port.hasFocus() or self.port.view().isVisible()): return
+        old=self.port.currentText().split(' | ',1)[0].strip()
+        ports,errors=discover(self.allports.isChecked())
+        signature=tuple((p.device,p.label,tuple(p.aliases)) for p in ports)
+        if automatic and signature==self._port_signature: return
+        self._port_signature=signature
+        self.port.blockSignals(True); self.port.clear()
+        for p in ports:
+            self.port.addItem(p.label,p.device)
+            self.port.setItemData(self.port.count()-1,f'{p.hwid}\nAliases: {", ".join(p.aliases)}',Qt.ToolTipRole)
+        if old:
+            index=next((i for i,p in enumerate(ports) if p.device==old),-1)
+            if index>=0: self.port.setCurrentIndex(index)
+            elif self._ports_initialized: self.port.setCurrentText(old)
+        self.port.blockSignals(False); self._ports_initialized=True
+        count=sum(p.usb for p in ports)
+        mode_note='Simulation uses no USB. Select Real EC-A4310 to connect hardware.' if self.mode.currentData()=='simulation' else 'Real motor: select the USB serial port, then Connect hardware.'
+        self.port_hint.setText(f'{mode_note} Detected: {count} USB serial / {len(ports)} listed. '+('No USB endpoint: use Diagnose USB.' if not count else 'Listed ports may still be busy.'))
+        if errors and hasattr(self,'log'): self.log.appendPlainText('; '.join(errors))
+    def auto_refresh_ports(self): self.refresh_ports(automatic=True)
+    def diagnose_usb(self):
+        if self._diagnosing: return
+        self._diagnosing=True; self.diagnostic_btn.setEnabled(False)
+        selected=self.port.currentText().split(' | ',1)[0].strip()
+        def work():
+            try: report=diagnose(selected)
+            except Exception as e: report='Diagnostic error: '+str(e)
+            self.events.put(('diagnostic',{'report':report}))
+        threading.Thread(target=work,daemon=True).start()
+    def show_diagnostic(self,report):
+        self._diagnosing=False; self.diagnostic_btn.setEnabled(True)
+        dialog=QDialog(self); dialog.setWindowTitle('USB diagnostics — copy this report'); dialog.resize(850,600)
+        box=QVBoxLayout(dialog); edit=QPlainTextEdit(); edit.setReadOnly(True); edit.setPlainText(report); box.addWidget(edit)
+        copy=QPushButton('Copy report'); copy.clicked.connect(lambda:QApplication.clipboard().setText(report)); box.addWidget(copy)
+        close=QPushButton('Close'); close.clicked.connect(dialog.accept); box.addWidget(close)
+        dialog.setAttribute(Qt.WA_DeleteOnClose); dialog.show()
     def connect_motor(self):
         if self.mode.currentData()=='real' and not self.port.currentText().strip(): self.log.appendPlainText('Select USB-CAN serial port'); return
-        self.connect_btn.setEnabled(False); self.backend.request('connect',port=self.port.currentText().split(' | ',1)[0].strip(),motor_id=self.mid.value() or None,mode=self.mode.currentData())
+        self._connecting=True; self.mode.setEnabled(False); self.connect_btn.setEnabled(False); self.backend.request('connect',port=self.port.currentText().split(' | ',1)[0].strip(),motor_id=self.mid.value() or None,mode=self.mode.currentData())
         self.backend.request('sim_object',present=self.object.isChecked())
     def mode_changed(self):
         sim=self.mode.currentData()=='simulation'
-        self.object.setEnabled(sim); self.port.setEnabled(not sim); self.mid.setEnabled(not sim)
+        self.object.setEnabled(sim); self.port.setEnabled(True); self.mid.setEnabled(not sim)
+        self.connect_btn.setText('Connect simulation' if sim else 'Connect hardware')
+        self.refresh_ports()
         self.jaws.mode=self.mode.currentData(); self.jaws.update()
         if sim:
             self.open.setValue(0); self.closed.setValue(90); self.calibrated.setChecked(True)
@@ -143,12 +178,15 @@ class Window(QMainWindow):
         for _ in range(100):
             try: kind,data=self.events.get_nowait()
             except queue.Empty: break
-            if kind=='log': self.log.appendPlainText(data['message'])
+            if kind=='log':
+                self.log.appendPlainText(data['message'])
+            elif kind=='diagnostic': self.show_diagnostic(data['report'])
             elif kind=='status': latest=data
-            elif kind=='connection': self.connect_btn.setEnabled(not data['connected'])
+            elif kind=='connection':
+                self._connecting=False; self.connect_btn.setEnabled(not data['connected'])
             elif kind=='finished': self.log.appendPlainText('Backend stopped')
         if latest:
-            self.mode.setEnabled(not latest['connected']); self.object.setEnabled(self.mode.currentData()=='simulation')
+            self.mode.setEnabled(not latest['connected'] and not self._connecting); self.object.setEnabled(self.mode.currentData()=='simulation')
             self.active=latest['active']; self.pending=latest['pending']; self.fb=latest['fb']; self.ready=latest['connected']
             self.sync=True; self.arm.setChecked(latest['armed']); self.udp.setChecked(latest['udp']); self.sync=False
             target_text='—' if latest['target'] is None else f"{latest['target']:.3f} deg"
@@ -162,12 +200,13 @@ class Window(QMainWindow):
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=self.object.isChecked(); self.jaws.state=latest['state']; self.jaws.update()
             for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
             for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending)
-            self.connect_btn.setEnabled(not self.ready)
+            self.connect_btn.setEnabled(not self.ready and not self._connecting)
     def closeEvent(self,event):
         self.backend.stop_requested.set(); self.backend.quit_requested.set(); self.backend.join(timeout=3)
         if self.backend.is_alive():
             self.log.appendPlainText('Waiting for serial operation to end…'); event.ignore(); return
-        self.timer.stop(); event.accept()
+        self.timer.stop(); self.port_timer.stop(); event.accept()
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+

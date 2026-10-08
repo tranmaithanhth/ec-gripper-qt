@@ -103,7 +103,9 @@ class Backend(threading.Thread):
                     try: kind,args=self.commands.get_nowait()
                     except queue.Empty: break
                     try: self.handle(kind,args)
-                    except Exception as e: self.emit('log',message=str(e))
+                    except Exception as e:
+                        self.emit('log',message=str(e))
+                        if kind=='connect': self.emit('connection',connected=False)
                 if self.udp:
                     for _ in range(10):
                         if self.stop_requested.is_set(): break
@@ -152,3 +154,4 @@ class Backend(threading.Thread):
             self.disconnect()
             if self.udp: self.udp.close(); self.udp=None
             self.emit('finished')
+

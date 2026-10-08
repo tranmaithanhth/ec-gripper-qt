@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+settings.json
+hardware_settings.json
+*.log
+.env
+.DS_Store
+build/
+dist/
+*.zip

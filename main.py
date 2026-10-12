@@ -9,7 +9,7 @@ from ports import discover, diagnose
 from control import Settings
 from backend import Backend
 from visual import JawView
-from mechanics import Geometry
+from mechanics import Geometry, read_config
 from collections import deque
 
 CONFIG=Path(__file__).with_name('hardware_settings.json')
@@ -167,56 +167,86 @@ class Window(QMainWindow):
         self.monitor.show(); self.monitor.raise_(); self.monitor.activateWindow()
 
     def build_mechanics(self,layout):
-        self.geometry=None
-        group=QGroupBox('Cơ khí · độ mở hai ngón (mm)'); form=QFormLayout(group)
-        hint=QLabel('Mô hình tay quay–thanh truyền: D = Dđóng + 2(x − xđóng). Nhập bộ thông số tối ưu thực tế; chỉ dùng để hiển thị, không đổi lệnh động cơ.')
+        self.geometry=None; self.mech_solutions=[]
+        group=QGroupBox('Cơ khí · 5 thông số chính'); form=QFormLayout(group)
+        hint=QLabel('Nhập độc lập các thông số dưới đây. Chương trình tự tính góc mở/đóng, không sửa các giá trị bạn nhập.')
         hint.setWordWrap(True); form.addRow(hint)
         self.mech_widgets={}
-        fields=[('max_mm','Độ mở tối đa (mm)',.01,1000,80),('closed_mm','Độ mở khi đóng (mm)',0,1000,0),('r_mm','Tay quay r (mm)',0,1000,0),('l_mm','Thanh truyền l (mm)',0,1000,0),('e_mm','Lệch tâm e (mm)',-1000,1000,0),('crank_open_deg','Góc cơ cấu tại OPEN (°)',-3600,3600,0),('crank_closed_deg','Góc cơ cấu tại CLOSED (°)',-3600,3600,0)]
-        for key,label,lo,hi,value in fields: self.mech_widgets[key]=self.spin(form,label,lo,hi,value,4)
-        note=QLabel('Hai góc cơ cấu là góc tay quay, không mặc định bằng góc encoder. Ghép chúng với hai góc OPEN/CLOSED đã hiệu chuẩn, theo tỷ số truyền không đổi.')
+        fields=[('max_mm','Độ mở tối đa (mm)',0,10000,80),('r_mm','Tay quay r (mm)',0,10000,0),('l_mm','Thanh truyền l (mm)',0,10000,0),('e_mm','Lệch tâm e (mm)',-10000,10000,0),('doffset_mm','Doffset — số bù độ mở (mm)',-100000,100000,0)]
+        for key,label,lo,hi,value in fields:
+            self.mech_widgets[key]=self.spin(form,label,lo,hi,value,4)
+            self.mech_widgets[key].setKeyboardTracking(False)
+        note=QLabel('D = Doffset + 2x. Doffset là số bù có dấu, có thể âm; không phải độ lệch tâm e. CLOSED được tính tại D = 0 mm. Góc tự tính chỉ dùng hiển thị; góc encoder vẫn hiệu chuẩn riêng.')
         note.setWordWrap(True); form.addRow(note)
-        self.mech_verified=QCheckBox('Đã kiểm tra kích thước và ánh xạ góc cơ cấu ↔ encoder'); form.addRow(self.mech_verified)
+        self.mech_branch=QComboBox(); self.mech_branch.currentIndexChanged.connect(self.select_mechanical_branch)
+        form.addRow(self.mech_branch)
         self.mech_status=QLabel(); self.mech_status.setWordWrap(True); form.addRow(self.mech_status)
         self.target_aperture=QLabel(); self.target_aperture.setWordWrap(True); form.addRow(self.target_aperture)
         self.mech_save=QPushButton('Lưu thông số cơ khí'); self.mech_save.clicked.connect(self.save_mechanics); form.addRow(self.mech_save)
-        self.mechanical_controls=list(self.mech_widgets.values())+[self.mech_verified,self.mech_save]
+        self.mechanical_controls=list(self.mech_widgets.values())+[self.mech_branch,self.mech_save]
         for widget in self.mech_widgets.values(): widget.valueChanged.connect(self.geometry_changed)
-        self.mech_verified.toggled.connect(self.geometry_changed)
         self.raw.valueChanged.connect(self.update_target_aperture)
         layout.addWidget(group); self.geometry_changed()
 
     def geometry_changed(self,*_):
-        self.geometry=None
+        preferred=[self.geometry.crank_open_deg,self.geometry.crank_closed_deg] if self.geometry else None
+        self.geometry=None; self.mech_solutions=[]
+        self.mech_branch.blockSignals(True); self.mech_branch.clear()
         try:
-            g=Geometry(**{key:w.value() for key,w in self.mech_widgets.items()}).validate()
-            if not self.mech_verified.isChecked(): raise ValueError('Chưa xác nhận kích thước và ánh xạ góc.')
-            self.geometry=g; self.mech_status.setText(f'Mô hình hợp lệ · OPEN {g.at_fraction(0):.2f} mm / CLOSED {g.closed_mm:.2f} mm')
-        except ValueError as exc: self.mech_status.setText(str(exc))
+            inputs=Geometry(**{key:w.value() for key,w in self.mech_widgets.items()})
+            self.mech_solutions=inputs.solve()
+            for i,g in enumerate(self.mech_solutions):
+                self.mech_branch.addItem(f'Nhánh {i+1}: OPEN {g.crank_open_deg:.3f}° → CLOSED {g.crank_closed_deg:.3f}°')
+            self.mech_branch.setCurrentIndex(self.nearest_branch(preferred))
+        except ValueError as exc: self.mech_status.setText('Chưa tính được: '+str(exc))
+        self.mech_branch.blockSignals(False); self.mech_branch.setVisible(len(self.mech_solutions)>1)
+        self.select_mechanical_branch()
+
+    def nearest_branch(self,angles):
+        if not angles or not self.mech_solutions: return 0
+        def distance(g):
+            # Preserve direction as well as the OPEN phase when migrating/reloading.
+            return abs((g.crank_open_deg-angles[0]+180)%360-180)+abs((g.crank_closed_deg-g.crank_open_deg)-(angles[1]-angles[0]))
+        return min(range(len(self.mech_solutions)),key=lambda i:distance(self.mech_solutions[i]))
+
+    def select_mechanical_branch(self,*_):
+        index=self.mech_branch.currentIndex()
+        self.geometry=self.mech_solutions[index] if 0<=index<len(self.mech_solutions) else None
+        if self.geometry:
+            g=self.geometry
+            text=f'Tự tính: góc OPEN {g.crank_open_deg:.3f}° · góc CLOSED {g.crank_closed_deg:.3f}° · hành trình mỗi ngón {g.max_mm/2:.2f} mm'
+            if len(self.mech_solutions)>1: text+='\nCó nhiều nhánh hình học; chọn nhánh đúng với chiều lắp thực tế ở trên.'
+            self.mech_status.setText(text)
         self.update_target_aperture()
 
     def update_target_aperture(self,*_):
-        text=f'Mục tiêu {self.raw.value()}/1000 → {self.geometry.at_fraction(self.raw.value()/1000):.2f} mm (theo mô hình)' if self.geometry else 'Độ mở mục tiêu: — mm · Cần cấu hình mô hình'
+        text=f'Mục tiêu {self.raw.value()}/1000 → {self.geometry.at_fraction(self.raw.value()/1000):.2f} mm (theo mô hình)' if self.geometry else 'Độ mở mục tiêu: — mm · Chờ đủ thông số hợp lệ'
         self.target_aperture.setText(text)
 
     def save_mechanics(self):
         try:
-            if self.geometry is None: raise ValueError(self.mech_status.text())
-            MECHANICS_CONFIG.write_text(json.dumps(asdict(self.geometry),indent=2)+'\n',encoding='utf-8')
-            self.log.appendPlainText('Đã lưu mechanical_settings.json; kiểm tra lại ánh xạ góc khi khởi động.')
+            data={key:w.value() for key,w in self.mech_widgets.items()}
+            data['version']=2
+            data['selected_angles']=[self.geometry.crank_open_deg,self.geometry.crank_closed_deg] if self.geometry else None
+            temporary=MECHANICS_CONFIG.with_suffix('.json.tmp')
+            temporary.write_text(json.dumps(data,indent=2)+'\n',encoding='utf-8'); temporary.replace(MECHANICS_CONFIG)
+            self.log.appendPlainText('Đã lưu thông số cơ khí.' if self.geometry else 'Đã lưu bản nháp cơ khí; chưa có nghiệm để hiển thị mm.')
         except (ValueError,OSError) as exc: self.log.appendPlainText('Cơ khí: '+str(exc))
 
     def load_mechanics(self):
         if not MECHANICS_CONFIG.exists(): return
         try:
-            g=Geometry(**json.loads(MECHANICS_CONFIG.read_text(encoding='utf-8'))).validate()
-            for key,w in self.mech_widgets.items(): w.setValue(getattr(g,key))
-            self.mech_verified.setChecked(False); self.geometry_changed()
-        except (ValueError,TypeError,OSError) as exc: self.log.appendPlainText('Không nạp được cơ khí: '+str(exc))
+            g,preferred=read_config(json.loads(MECHANICS_CONFIG.read_text(encoding='utf-8')))
+            if any(not w.minimum()<=getattr(g,key)<=w.maximum() for key,w in self.mech_widgets.items()): raise ValueError('Thông số trong file nằm ngoài khoảng nhập hỗ trợ; file vẫn được giữ.')
+            for key,w in self.mech_widgets.items():
+                w.blockSignals(True); w.setValue(getattr(g,key)); w.blockSignals(False)
+            self.geometry_changed()
+            if preferred and self.mech_solutions: self.mech_branch.setCurrentIndex(self.nearest_branch(preferred))
+        except (ValueError,TypeError,KeyError,OSError) as exc: self.log.appendPlainText('Không nạp được cơ khí: '+str(exc))
 
     def update_aperture(self,latest):
         self.jaws.width_mm=None; self.jaws.max_mm=None; self.jaws.object_width_mm=None
-        text='Độ mở: — mm · Chưa cấu hình / xác nhận cơ khí'
+        text='Độ mở: — mm · Chưa đủ thông số cơ khí hợp lệ'
         if self.geometry:
             try:
                 if not self.calibrated.isChecked(): raise ValueError('Chưa xác nhận hiệu chuẩn encoder')
@@ -277,7 +307,6 @@ class Window(QMainWindow):
         self._connecting=True; self.mode.setEnabled(False); self.connect_btn.setEnabled(False); self.backend.request('connect',port=self.port.currentText().split(' | ',1)[0].strip(),motor_id=self.mid.value() or None,mode=self.mode.currentData())
         self.backend.request('sim_object',present=self.object.isChecked())
     def mode_changed(self):
-        self.mech_verified.setChecked(False)
         sim=self.mode.currentData()=='simulation'
         self.object.setEnabled(sim); self.port.setEnabled(True); self.mid.setEnabled(not sim)
         self.connect_btn.setText('Connect simulation' if sim else 'Connect hardware')
@@ -363,6 +392,7 @@ class Window(QMainWindow):
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+
 
 
 

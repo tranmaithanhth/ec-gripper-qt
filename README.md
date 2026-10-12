@@ -163,19 +163,26 @@ Chưa đặt giấy phép phân phối vì quyền phân phối driver gốc c�
 
 Bấm **Theo dõi / Nhật ký ↗** ở tab Điều khiển (hoặc nút tương ứng trong Cài đặt) để mở cửa sổ riêng, không chặn cửa sổ chính. Có thể kéo sang màn hình thứ hai. Đóng cửa sổ theo dõi chỉ ẩn nó; dữ liệu vẫn cập nhật và nhật ký được giữ trong phiên (tối đa 600 dòng). Đóng ứng dụng chính sẽ đóng cửa sổ này. Nút STOP có ở cả hai cửa sổ.
 
-Trong **Cài đặt → Cơ khí**, nhập độ mở tối đa (mục tiêu thiết kế ban đầu 80 mm), độ mở khi đóng (ban đầu 0 mm), tay quay `r`, thanh truyền `l`, lệch tâm `e` theo mm và góc tay quay tại OPEN/CLOSED theo độ. Chương trình dùng nhánh căn dương của mô hình đã thảo luận:
+Trong **Cài đặt → Cơ khí**, chỉ nhập **5 thông số chính** (mm): độ mở tối đa, tay quay `r`, thanh truyền `l`, lệch tâm `e`, và `Doffset`. Các ô không điều chỉnh hoặc khóa giá trị của nhau. Có thể lưu bản nháp dù chưa có nghiệm. Chương trình không tự thay đổi kích thước bạn nhập để ép một cơ cấu không khả thi thành hợp lệ.
 
 ```text
 x(theta) = r*cos(theta) + sqrt(l² - (e-r*sin(theta))²)
-D(theta) = D_closed + 2*(x(theta)-x(theta_closed))
-s = (encoder-encoder_open)/(encoder_closed-encoder_open)
-theta = theta_open + s*(theta_closed-theta_open)
+D(theta) = Doffset + 2*x(theta)
 ```
 
-Ánh xạ cuối giả thiết tỷ số truyền không đổi; hai góc tay quay phải tương ứng đúng với hai góc encoder đã hiệu chuẩn. Không mặc định góc encoder bằng góc tay quay. Độ mở là khoảng cách hai mặt kẹp, không phải hành trình một ngón.
+`Doffset` là số bù có dấu của **toàn bộ độ mở hai ngón**, không phải độ lệch tâm `e`, có thể âm. Tại CLOSED = 0 mm, `Doffset = -2*x_closed`. Giữ quy ước nhánh căn dương của mô hình trước.
 
-**Chưa có bộ tham số tối ưu cuối cùng được xác minh:** `r`, `l` và góc cơ cấu để trống dưới dạng 0; không đưa số minh họa vào cấu hình phần cứng. Nhập bộ số thực rồi xác nhận ánh xạ. Chương trình kiểm tra miền hình học, hành trình giảm đơn điệu và độ mở OPEN phù hợp với độ mở tối đa (sai số cho phép lớn hơn giữa 0,1 mm và 0,1%). Thay độ mở tối đa không tự co giãn cơ cấu hoặc thay góc động cơ.
+Khi đủ thông số hợp lệ, chương trình giải ngược để tự tính:
 
-Sau khi cấu hình, độ mở theo phản hồi encoder và độ mở đích được hiển thị bằng mm; mục tiêu 0–1000 trong phần nâng cao cũng có giá trị mm xem trước. 500/1000 là nửa hành trình góc, **không nhất thiết** là nửa độ mở. Hình vẽ dùng cùng phép tính; đây vẫn là sơ đồ 2D, không phải CAD và không phải cảm biến đo trực tiếp khoảng cách. Khi chưa cấu hình, hiện `— mm`; khi góc ngoài hiệu chuẩn không âm thầm cắt về giới hạn. Phản hồi cũ được đánh dấu.
+- Góc tay quay tại OPEN: `D = độ mở tối đa`.
+- Góc tay quay tại CLOSED: `D = 0 mm`.
+- Hành trình mỗi ngón: `độ mở tối đa / 2`.
+- Độ mở trung gian và độ mở đích theo quan hệ phi tuyến.
 
-Bấm **Lưu thông số cơ khí** để ghi `mechanical_settings.json`. Cần kiểm tra lại và đánh dấu xác nhận sau khởi động hoặc chuyển chế độ. Các tham số này chỉ phục vụ hiển thị; giới hạn chuyển động, dòng điện và định dạng UDP/CAN giữ nguyên.
+Nếu có nhiều nhánh, hộp chọn nhánh chỉ xuất hiện khi cần; mặc định ưu tiên hành trình góc tăng. Cần chọn nhánh tương ứng với chiều lắp cơ khí thực. Các nhánh khác nhau có thể cho độ mở trung gian khác nhau khi `e != 0`. Không tự chọn nhánh theo dữ liệu encoder khi chưa biết quan hệ lắp cơ khí. Không có nghiệm hoặc miền căn không hợp lệ thì báo rõ và hiển thị `— mm`, nhưng vẫn cho sửa/lưu tất cả ô.
+
+Ví dụ toán học để thử giao diện (không phải bộ tối ưu phần cứng): `Dmax=80`, `r=20`, `l=100`, `e=0`, `Doffset=-160` cho góc OPEN=0°, CLOSED=180° ở nhánh tăng; nửa hành trình góc cho khoảng 35,96 mm, không phải 40 mm.
+
+Góc encoder OPEN/CLOSED vẫn được hiệu chuẩn riêng trong phần điều khiển động cơ. Phần hiển thị dùng `s=(encoder-encoder_open)/(encoder_closed-encoder_open)` và `theta=theta_open+s*(theta_closed-theta_open)`, giả thiết tỷ số truyền không đổi. Các góc tự tính **không** được ghi vào hiệu chuẩn phần cứng hay gửi xuống động cơ. Đây là độ mở theo mô hình, không phải cảm biến đo khoảng cách trực tiếp.
+
+Bấm **Lưu thông số cơ khí** để lưu 5 giá trị và nhánh đã chọn vào `mechanical_settings.json`. Bộ số cũ có CLOSED=0 được chuyển thành Doffset khi đọc và giữ nhánh gần nhất; file chỉ được ghi lại khi bấm Lưu. Cấu hình cũ có CLOSED khác 0 cần chuyển đổi thủ công và được báo rõ, không tự ghi đè. Không còn ô xác nhận cơ khí riêng; ARM và xác nhận hiệu chuẩn encoder vẫn hoạt động như trước.

@@ -148,3 +148,12 @@ Chưa đặt giấy phép phân phối vì quyền phân phối driver gốc c�
 - **Diagnose USB → Copy report** collects visible ports, permissions, USB inventory and relevant kernel messages. Restricted kernel logs are reported honestly; it never runs sudo or changes drivers.
 - CLI alternative, inside the venv: `python tools/diagnose_ports.py`. Add `--port /dev/ttyUSB0` to check a selected device node.
 - If Simulation was already connected, Disconnect before selecting Real EC-A4310. Missing ttyUSB nodes require resolving the Linux USB/driver conflict; a GUI change cannot recreate them.
+
+
+## Giao diện hai tab
+
+- **Điều khiển**: hình tay kẹp lớn, phản hồi động cơ, ARM và Open / Close / Stop.
+- **Cài đặt**: chế độ mô phỏng/phần cứng, cổng USB, hiệu chuẩn, dòng điện, tốc độ, UDP, mục tiêu 0–1000, biểu đồ và nhật ký.
+- Nút Stop ở góc trên luôn có thể truy cập từ cả hai tab.
+- Hình tay kẹp là sơ đồ 2D, cập nhật theo góc phản hồi; không phải CAD 3D hay phép đo độ mở theo mm. Phản hồi quá 0,5 giây được đánh dấu cũ.
+- Chọn kết nối và kiểm tra hiệu chuẩn trong Cài đặt trước khi bật ARM ở tab Điều khiển.

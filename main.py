@@ -4,7 +4,7 @@ from dataclasses import asdict
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,
- QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog)
+ QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog,QTabWidget,QScrollArea)
 from ports import discover, diagnose
 from control import Settings
 from backend import Backend
@@ -29,7 +29,7 @@ class Trace(QWidget):
 
 class Window(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle('EC Gripper Qt • Simulation / Real motor'); self.resize(1080,980)
+        super().__init__(); self.setWindowTitle('EC Gripper Qt • Simulation / Real motor'); self.resize(1080,760)
         self.events=queue.Queue(); self.backend=Backend(self.events); self.backend.start()
         self._ports_initialized=False; self._connecting=False; self._port_signature=None; self._diagnosing=False
         self.fb=None; self.ready=False; self.active=False; self.pending=False; self.sync=False
@@ -79,6 +79,72 @@ class Window(QMainWindow):
         self.feedback=QLabel('Position — | Current — | Temperature —'); layout.addWidget(self.feedback)
         self.trace=Trace(); layout.addWidget(self.trace)
         self.log=QPlainTextEdit(); self.log.setReadOnly(True); self.log.setMaximumBlockCount(600); layout.addWidget(self.log)
+        # Rehouse existing controls without changing their signals or motor commands.
+        shell=QWidget(); outer=QVBoxLayout(shell); outer.setContentsMargins(20,16,20,16)
+        title=QLabel('EC GRIPPER'); title.setObjectName('title'); outer.addWidget(title)
+        subtitle=QLabel('EC-A4310 · Điều khiển tay kẹp'); subtitle.setObjectName('muted'); outer.addWidget(subtitle)
+        self.tabs=QTabWidget(); outer.addWidget(self.tabs)
+        control_page=QWidget(); control_layout=QVBoxLayout(control_page)
+        control_layout.setContentsMargins(16,16,16,16); control_layout.setSpacing(12)
+        status_row=QHBoxLayout(); control_layout.addLayout(status_row)
+        self.overview=QLabel('Chưa kết nối'); status_row.addWidget(self.overview,1)
+        settings_link=QPushButton('Cài đặt kết nối →'); settings_link.clicked.connect(lambda:self.tabs.setCurrentIndex(1)); status_row.addWidget(settings_link)
+        control_layout.addWidget(self.jaws,1)
+        self.feedback.setWordWrap(True); control_layout.addWidget(self.feedback)
+        actions=QHBoxLayout(); control_layout.addLayout(actions)
+        for button,label,name in [(self.motion_buttons[1],'MỞ · OPEN','openButton'),(self.motion_buttons[2],'KẸP · CLOSE','closeButton'),(self.stop_btn,'DỪNG · STOP','stopButton')]:
+            button.setText(label); button.setObjectName(name); button.setMinimumHeight(56); actions.addWidget(button)
+        self.stop_btn.setStyleSheet('')
+        control_layout.addWidget(self.arm)
+        self.action_message=QLabel('Kết nối và kiểm tra hiệu chuẩn trong tab Cài đặt, sau đó bật ARM.')
+        self.action_message.setWordWrap(True); control_layout.addWidget(self.action_message)
+        self.log.textChanged.connect(lambda:self.action_message.setText(self.log.document().lastBlock().text()))
+        self.arm.setText('ARM · Cho phép điều khiển tay kẹp')
+        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng.')
+        notice.setWordWrap(True); notice.setObjectName('muted'); control_layout.addWidget(notice)
+        self.tabs.addTab(control_page,'Điều khiển')
+        settings_page=QWidget(); settings_layout=QVBoxLayout(settings_page); settings_layout.setSpacing(14)
+        connection=QGroupBox('Kết nối'); connection_layout=QFormLayout(connection)
+        connection_layout.addRow('Chế độ',self.mode); connection_layout.addRow('Cổng USB-CAN',self.port)
+        connection_layout.addRow('Motor ID',self.mid)
+        connection_actions=QHBoxLayout()
+        for widget in [self.refresh,self.connect_btn,self.disconnect_btn,self.diagnostic_btn]: connection_actions.addWidget(widget)
+        connection_layout.addRow(connection_actions); connection_layout.addRow(self.allports); connection_layout.addRow(self.port_hint)
+        settings_layout.addWidget(connection)
+        settings_layout.addWidget(calibration); settings_layout.addWidget(params)
+        settings_layout.addWidget(self.save)
+        advanced=QGroupBox('Mô phỏng và điều khiển nâng cao'); advanced_layout=QFormLayout(advanced)
+        advanced_layout.addRow(self.object); advanced_layout.addRow(self.udp)
+        target_row=QHBoxLayout(); target_row.addWidget(self.raw); target_row.addWidget(self.motion_buttons[0]); advanced_layout.addRow('Mức đóng 0–1000',target_row)
+        settings_layout.addWidget(advanced)
+        diagnostics=QGroupBox('Theo dõi và nhật ký'); diagnostics_layout=QVBoxLayout(diagnostics)
+        self.state.setWordWrap(True); diagnostics_layout.addWidget(self.state)
+        diagnostics_layout.addWidget(self.trace); self.log.setMinimumHeight(150); diagnostics_layout.addWidget(self.log)
+        settings_layout.addWidget(diagnostics); settings_layout.addStretch()
+        scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(settings_page)
+        self.tabs.addTab(scroll,'Cài đặt')
+        # STOP is always reachable, even while reviewing settings.
+        self.settings_stop=QPushButton('DỪNG · STOP'); self.settings_stop.setObjectName('stopButton'); self.settings_stop.clicked.connect(self.stop)
+        self.tabs.setCornerWidget(self.settings_stop)
+        old_root=self.takeCentralWidget(); self.setCentralWidget(shell); old_root.deleteLater()
+        self.setStyleSheet("""
+            QWidget {background:#101923; color:#e4ecf4; font-size:13px;}
+            QLabel#title {font-size:25px; font-weight:700; color:#f7fbff;}
+            QLabel#muted {color:#91a4b6; font-size:12px;}
+            QTabWidget::pane {border:1px solid #2d4052; border-radius:8px;}
+            QTabBar::tab {padding:12px 30px; background:#172534; color:#93a8bc;}
+            QTabBar::tab:selected {color:#64dfc3; border-bottom:3px solid #64dfc3;}
+            QGroupBox {border:1px solid #314658; border-radius:8px; margin-top:16px; padding:16px; font-weight:bold;}
+            QGroupBox::title {subcontrol-origin:margin; left:12px; padding:0 5px;}
+            QPushButton {background:#233649; border:1px solid #3b5369; border-radius:7px; padding:9px 14px;}
+            QPushButton:hover {background:#304b63;}
+            QPushButton#openButton {background:#235870; font-size:17px; font-weight:bold;}
+            QPushButton#closeButton {background:#137a69; font-size:17px; font-weight:bold;}
+            QPushButton#stopButton {background:#a33443; color:white; font-weight:bold;}
+            QPushButton:disabled {background:#1b2936; color:#617387; border-color:#28394a;}
+            QComboBox,QSpinBox,QDoubleSpinBox,QPlainTextEdit {background:#172534; border:1px solid #3b5369; border-radius:4px; padding:6px;}
+            QScrollArea {border:none;}
+        """)
         self.config_controls=[self.open,self.closed,self.open_set,self.close_set,self.calibrated,self.speed,self.close_a,self.hold_a,self.contact_a,self.preload,self.timeout,self.save]
         self.mode.currentIndexChanged.connect(self.mode_changed)
         self.mode_changed()
@@ -190,11 +256,14 @@ class Window(QMainWindow):
             self.active=latest['active']; self.pending=latest['pending']; self.fb=latest['fb']; self.ready=latest['connected']
             self.sync=True; self.arm.setChecked(latest['armed']); self.udp.setChecked(latest['udp']); self.sync=False
             target_text='—' if latest['target'] is None else f"{latest['target']:.3f} deg"
+            self.overview.setText(f"{'MÔ PHỎNG' if self.mode.currentData()=='simulation' else 'ĐỘNG CƠ THẬT'} · {'Đã kết nối' if self.ready else 'Chưa kết nối'} · {latest['state']}" + (f" · {latest['error']}" if latest['error'] else ''))
             self.state.setText(f"{latest['state']} | {'CONNECTED' if self.ready else 'DISCONNECTED'} | {'ARMED' if latest['armed'] else 'DISARMED'} | Target {target_text} | I_limit {latest['limit']:.1f} A | {latest['error']}")
             if self.fb:
                 cur=self.fb.get('current_a'); temp=self.fb.get('temperature_c')
                 self.feedback.setText(f"Position {self.fb['position']:.3f} deg | Current {cur if cur is not None else '—'} A | Temperature {temp if temp is not None else '—'} C | Feedback age {latest['feedback_age']:.2f} s")
                 self.trace.points.append(cur); self.trace.update()
+            self.jaws.stale=not self.ready or latest['feedback_age']>.5
+            if not self.fb: self.feedback.setText('Position — | Current — | Temperature —')
             self.jaws.position=self.fb['position'] if self.fb else None
             self.jaws.target=latest['target']; self.jaws.open_deg=self.open.value(); self.jaws.closed_deg=self.closed.value()
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=self.object.isChecked(); self.jaws.state=latest['state']; self.jaws.update()
@@ -209,4 +278,5 @@ class Window(QMainWindow):
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+
 

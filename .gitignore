@@ -11,3 +11,6 @@ hardware_settings.json
 build/
 dist/
 *.zip
+
+# Local mechanical calibration
+mechanical_settings.json

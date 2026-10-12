@@ -155,5 +155,27 @@ Chưa đặt giấy phép phân phối vì quyền phân phối driver gốc c�
 - **Điều khiển**: hình tay kẹp lớn, phản hồi động cơ, ARM và Open / Close / Stop.
 - **Cài đặt**: chế độ mô phỏng/phần cứng, cổng USB, hiệu chuẩn, dòng điện, tốc độ, UDP, mục tiêu 0–1000, biểu đồ và nhật ký.
 - Nút Stop ở góc trên luôn có thể truy cập từ cả hai tab.
-- Hình tay kẹp là sơ đồ 2D, cập nhật theo góc phản hồi; không phải CAD 3D hay phép đo độ mở theo mm. Phản hồi quá 0,5 giây được đánh dấu cũ.
+- Hình tay kẹp là sơ đồ 2D, cập nhật theo góc phản hồi; không phải CAD 3D. Độ mở mm chỉ có sau khi cấu hình mô hình cơ khí (xem bên dưới). Phản hồi quá 0,5 giây được đánh dấu cũ.
 - Chọn kết nối và kiểm tra hiệu chuẩn trong Cài đặt trước khi bật ARM ở tab Điều khiển.
+
+
+## Cửa sổ theo dõi và độ mở cơ khí
+
+Bấm **Theo dõi / Nhật ký ↗** ở tab Điều khiển (hoặc nút tương ứng trong Cài đặt) để mở cửa sổ riêng, không chặn cửa sổ chính. Có thể kéo sang màn hình thứ hai. Đóng cửa sổ theo dõi chỉ ẩn nó; dữ liệu vẫn cập nhật và nhật ký được giữ trong phiên (tối đa 600 dòng). Đóng ứng dụng chính sẽ đóng cửa sổ này. Nút STOP có ở cả hai cửa sổ.
+
+Trong **Cài đặt → Cơ khí**, nhập độ mở tối đa (mục tiêu thiết kế ban đầu 80 mm), độ mở khi đóng (ban đầu 0 mm), tay quay `r`, thanh truyền `l`, lệch tâm `e` theo mm và góc tay quay tại OPEN/CLOSED theo độ. Chương trình dùng nhánh căn dương của mô hình đã thảo luận:
+
+```text
+x(theta) = r*cos(theta) + sqrt(l² - (e-r*sin(theta))²)
+D(theta) = D_closed + 2*(x(theta)-x(theta_closed))
+s = (encoder-encoder_open)/(encoder_closed-encoder_open)
+theta = theta_open + s*(theta_closed-theta_open)
+```
+
+Ánh xạ cuối giả thiết tỷ số truyền không đổi; hai góc tay quay phải tương ứng đúng với hai góc encoder đã hiệu chuẩn. Không mặc định góc encoder bằng góc tay quay. Độ mở là khoảng cách hai mặt kẹp, không phải hành trình một ngón.
+
+**Chưa có bộ tham số tối ưu cuối cùng được xác minh:** `r`, `l` và góc cơ cấu để trống dưới dạng 0; không đưa số minh họa vào cấu hình phần cứng. Nhập bộ số thực rồi xác nhận ánh xạ. Chương trình kiểm tra miền hình học, hành trình giảm đơn điệu và độ mở OPEN phù hợp với độ mở tối đa (sai số cho phép lớn hơn giữa 0,1 mm và 0,1%). Thay độ mở tối đa không tự co giãn cơ cấu hoặc thay góc động cơ.
+
+Sau khi cấu hình, độ mở theo phản hồi encoder và độ mở đích được hiển thị bằng mm; mục tiêu 0–1000 trong phần nâng cao cũng có giá trị mm xem trước. 500/1000 là nửa hành trình góc, **không nhất thiết** là nửa độ mở. Hình vẽ dùng cùng phép tính; đây vẫn là sơ đồ 2D, không phải CAD và không phải cảm biến đo trực tiếp khoảng cách. Khi chưa cấu hình, hiện `— mm`; khi góc ngoài hiệu chuẩn không âm thầm cắt về giới hạn. Phản hồi cũ được đánh dấu.
+
+Bấm **Lưu thông số cơ khí** để ghi `mechanical_settings.json`. Cần kiểm tra lại và đánh dấu xác nhận sau khởi động hoặc chuyển chế độ. Các tham số này chỉ phục vụ hiển thị; giới hạn chuyển động, dòng điện và định dạng UDP/CAN giữ nguyên.

@@ -8,6 +8,7 @@ class JawView(QWidget):
         super().__init__(); self.setMinimumSize(320,300)
         self.position=None; self.target=None; self.open_deg=0.; self.closed_deg=90.
         self.mode='simulation'; self.object_present=True; self.state='DISCONNECTED'; self.stale=True
+        self.width_mm=None; self.max_mm=None; self.object_width_mm=None
 
     def paintEvent(self,event):
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing)
@@ -17,7 +18,7 @@ class JawView(QWidget):
         for y in range(0,self.height(),28): p.drawLine(0,y,self.width(),y)
         p.setFont(QFont('Sans',10)); p.setPen(QColor('#9cb2c5'))
         p.drawText(18,26,'MÔ PHỎNG' if self.mode=='simulation' else 'PHẢN HỒI ENCODER')
-        p.drawText(18,47,'Sơ đồ 2D · độ mở quy đổi từ góc, chưa hiệu chuẩn theo mm')
+        p.drawText(18,47,'Sơ đồ 2D · độ mở theo mô hình cơ khí (mm)' if self.width_mm is not None else 'Sơ đồ 2D · chưa cấu hình mô hình độ mở mm')
         span=self.closed_deg-self.open_deg
         valid=self.position is not None and abs(span)>1e-6
         closure=max(0.,min(1.,(self.position-self.open_deg)/span)) if valid else 0.
@@ -36,7 +37,7 @@ class JawView(QWidget):
             for y in (62,85):
                 p.setBrush(QColor('#182b3b')); p.setPen(QPen(QColor('#c0d0dc'),1)); p.drawEllipse(QRectF(x-4,y-4,8,8))
         p.setPen(QColor('#dce9f2')); p.setFont(QFont('Sans',12,QFont.Bold)); p.drawText(QRectF(-100,60,200,28),Qt.AlignCenter,'EC · A4310')
-        gap=260*(1-closure)
+        gap=260*(1-closure) if self.width_mm is None else 260*max(0.,min(1.,self.width_mm/self.max_mm))
         # Pads meet at zero; at synthetic contact (55%), gap equals object width.
         for side in (-1,1):
             inner=side*gap/2
@@ -48,7 +49,8 @@ class JawView(QWidget):
             p.setPen(QPen(QColor('#7394a8'),1))
             for y in range(208,273,8): p.drawLine(int(pad_x+2),y,int(pad_x+8),y)
         if self.mode=='simulation' and self.object_present:
-            box(-58.5,205,117,71,'#e9ba70','#ac733b',9)
+            object_width=117 if self.width_mm is None else 260*self.object_width_mm/self.max_mm
+            box(-object_width/2,205,object_width,71,'#e9ba70','#ac733b',9)
             p.setPen(QColor('#513e27')); p.setFont(QFont('Sans',10)); p.drawText(QRectF(-58,225,116,25),Qt.AlignCenter,'VẬT MÔ PHỎNG')
         p.setPen(QPen(QColor('#61d8c0'),1.5))
         p.drawLine(int(-gap/2),294,int(gap/2),294)
@@ -56,6 +58,8 @@ class JawView(QWidget):
         p.restore()
         p.setFont(QFont('Sans',10)); p.setPen(QColor('#69dfc4') if valid and not self.stale else QColor('#e2b76e'))
         caption=f'Mức đóng {closure*100:.0f}%  ·  Góc {self.position:.2f}°' if valid else 'Chờ phản hồi và hiệu chuẩn góc mở / đóng'
+        if self.width_mm is not None: caption=f'Độ mở {self.width_mm:.2f} mm  ·  '+caption
         if valid and self.stale: caption+='  ·  Phản hồi cũ'
         p.drawText(18,self.height()-17,caption)
         p.end()
+

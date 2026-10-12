@@ -9,9 +9,11 @@ from ports import discover, diagnose
 from control import Settings
 from backend import Backend
 from visual import JawView
+from mechanics import Geometry
 from collections import deque
 
 CONFIG=Path(__file__).with_name('hardware_settings.json')
+MECHANICS_CONFIG=Path(__file__).with_name('mechanical_settings.json')
 
 class Trace(QWidget):
     def __init__(self):
@@ -89,8 +91,10 @@ class Window(QMainWindow):
         status_row=QHBoxLayout(); control_layout.addLayout(status_row)
         self.overview=QLabel('Chưa kết nối'); status_row.addWidget(self.overview,1)
         settings_link=QPushButton('Cài đặt kết nối →'); settings_link.clicked.connect(lambda:self.tabs.setCurrentIndex(1)); status_row.addWidget(settings_link)
+        self.monitor_button=QPushButton('Theo dõi / Nhật ký ↗'); self.monitor_button.clicked.connect(self.show_monitor); status_row.addWidget(self.monitor_button)
         control_layout.addWidget(self.jaws,1)
         self.feedback.setWordWrap(True); control_layout.addWidget(self.feedback)
+        self.aperture=QLabel('Độ mở: — mm · Chưa cấu hình cơ khí'); control_layout.addWidget(self.aperture)
         actions=QHBoxLayout(); control_layout.addLayout(actions)
         for button,label,name in [(self.motion_buttons[1],'MỞ · OPEN','openButton'),(self.motion_buttons[2],'KẸP · CLOSE','closeButton'),(self.stop_btn,'DỪNG · STOP','stopButton')]:
             button.setText(label); button.setObjectName(name); button.setMinimumHeight(56); actions.addWidget(button)
@@ -113,14 +117,21 @@ class Window(QMainWindow):
         settings_layout.addWidget(connection)
         settings_layout.addWidget(calibration); settings_layout.addWidget(params)
         settings_layout.addWidget(self.save)
+        self.build_mechanics(settings_layout)
         advanced=QGroupBox('Mô phỏng và điều khiển nâng cao'); advanced_layout=QFormLayout(advanced)
         advanced_layout.addRow(self.object); advanced_layout.addRow(self.udp)
         target_row=QHBoxLayout(); target_row.addWidget(self.raw); target_row.addWidget(self.motion_buttons[0]); advanced_layout.addRow('Mức đóng 0–1000',target_row)
         settings_layout.addWidget(advanced)
-        diagnostics=QGroupBox('Theo dõi và nhật ký'); diagnostics_layout=QVBoxLayout(diagnostics)
-        self.state.setWordWrap(True); diagnostics_layout.addWidget(self.state)
-        diagnostics_layout.addWidget(self.trace); self.log.setMinimumHeight(150); diagnostics_layout.addWidget(self.log)
-        settings_layout.addWidget(diagnostics); settings_layout.addStretch()
+        self.monitor=QDialog(self,Qt.Window); self.monitor.setWindowTitle('EC Gripper · Theo dõi và nhật ký'); self.monitor.resize(850,650)
+        monitor_layout=QVBoxLayout(self.monitor)
+        self.state.setWordWrap(True); monitor_layout.addWidget(self.state)
+        self.monitor_feedback=QLabel('Chờ phản hồi'); self.monitor_feedback.setWordWrap(True); monitor_layout.addWidget(self.monitor_feedback)
+        self.monitor_aperture=QLabel('Độ mở: — mm'); self.monitor_aperture.setWordWrap(True); monitor_layout.addWidget(self.monitor_aperture)
+        monitor_layout.addWidget(self.trace,1); monitor_layout.addWidget(self.log,2)
+        monitor_stop=QPushButton('DỪNG · STOP'); monitor_stop.setObjectName('stopButton'); monitor_stop.clicked.connect(self.stop); monitor_layout.addWidget(monitor_stop)
+        monitor_hint=QLabel('Đóng cửa sổ này chỉ ẩn phần theo dõi; tay kẹp vẫn hoạt động.'); monitor_hint.setWordWrap(True); monitor_layout.addWidget(monitor_hint)
+        launch_monitor=QPushButton('Mở cửa sổ Theo dõi và nhật ký ↗'); launch_monitor.clicked.connect(self.show_monitor); settings_layout.addWidget(launch_monitor)
+        settings_layout.addStretch()
         scroll=QScrollArea(); scroll.setWidgetResizable(True); scroll.setWidget(settings_page)
         self.tabs.addTab(scroll,'Cài đặt')
         # STOP is always reachable, even while reviewing settings.
@@ -146,10 +157,82 @@ class Window(QMainWindow):
             QScrollArea {border:none;}
         """)
         self.config_controls=[self.open,self.closed,self.open_set,self.close_set,self.calibrated,self.speed,self.close_a,self.hold_a,self.contact_a,self.preload,self.timeout,self.save]
+        self.config_controls.extend(self.mechanical_controls)
+        self.load_mechanics()
         self.mode.currentIndexChanged.connect(self.mode_changed)
         self.mode_changed()
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll); self.timer.start(50)
         self.port_timer=QTimer(self); self.port_timer.timeout.connect(self.auto_refresh_ports); self.port_timer.start(2000)
+    def show_monitor(self):
+        self.monitor.show(); self.monitor.raise_(); self.monitor.activateWindow()
+
+    def build_mechanics(self,layout):
+        self.geometry=None
+        group=QGroupBox('Cơ khí · độ mở hai ngón (mm)'); form=QFormLayout(group)
+        hint=QLabel('Mô hình tay quay–thanh truyền: D = Dđóng + 2(x − xđóng). Nhập bộ thông số tối ưu thực tế; chỉ dùng để hiển thị, không đổi lệnh động cơ.')
+        hint.setWordWrap(True); form.addRow(hint)
+        self.mech_widgets={}
+        fields=[('max_mm','Độ mở tối đa (mm)',.01,1000,80),('closed_mm','Độ mở khi đóng (mm)',0,1000,0),('r_mm','Tay quay r (mm)',0,1000,0),('l_mm','Thanh truyền l (mm)',0,1000,0),('e_mm','Lệch tâm e (mm)',-1000,1000,0),('crank_open_deg','Góc cơ cấu tại OPEN (°)',-3600,3600,0),('crank_closed_deg','Góc cơ cấu tại CLOSED (°)',-3600,3600,0)]
+        for key,label,lo,hi,value in fields: self.mech_widgets[key]=self.spin(form,label,lo,hi,value,4)
+        note=QLabel('Hai góc cơ cấu là góc tay quay, không mặc định bằng góc encoder. Ghép chúng với hai góc OPEN/CLOSED đã hiệu chuẩn, theo tỷ số truyền không đổi.')
+        note.setWordWrap(True); form.addRow(note)
+        self.mech_verified=QCheckBox('Đã kiểm tra kích thước và ánh xạ góc cơ cấu ↔ encoder'); form.addRow(self.mech_verified)
+        self.mech_status=QLabel(); self.mech_status.setWordWrap(True); form.addRow(self.mech_status)
+        self.target_aperture=QLabel(); self.target_aperture.setWordWrap(True); form.addRow(self.target_aperture)
+        self.mech_save=QPushButton('Lưu thông số cơ khí'); self.mech_save.clicked.connect(self.save_mechanics); form.addRow(self.mech_save)
+        self.mechanical_controls=list(self.mech_widgets.values())+[self.mech_verified,self.mech_save]
+        for widget in self.mech_widgets.values(): widget.valueChanged.connect(self.geometry_changed)
+        self.mech_verified.toggled.connect(self.geometry_changed)
+        self.raw.valueChanged.connect(self.update_target_aperture)
+        layout.addWidget(group); self.geometry_changed()
+
+    def geometry_changed(self,*_):
+        self.geometry=None
+        try:
+            g=Geometry(**{key:w.value() for key,w in self.mech_widgets.items()}).validate()
+            if not self.mech_verified.isChecked(): raise ValueError('Chưa xác nhận kích thước và ánh xạ góc.')
+            self.geometry=g; self.mech_status.setText(f'Mô hình hợp lệ · OPEN {g.at_fraction(0):.2f} mm / CLOSED {g.closed_mm:.2f} mm')
+        except ValueError as exc: self.mech_status.setText(str(exc))
+        self.update_target_aperture()
+
+    def update_target_aperture(self,*_):
+        text=f'Mục tiêu {self.raw.value()}/1000 → {self.geometry.at_fraction(self.raw.value()/1000):.2f} mm (theo mô hình)' if self.geometry else 'Độ mở mục tiêu: — mm · Cần cấu hình mô hình'
+        self.target_aperture.setText(text)
+
+    def save_mechanics(self):
+        try:
+            if self.geometry is None: raise ValueError(self.mech_status.text())
+            MECHANICS_CONFIG.write_text(json.dumps(asdict(self.geometry),indent=2)+'\n',encoding='utf-8')
+            self.log.appendPlainText('Đã lưu mechanical_settings.json; kiểm tra lại ánh xạ góc khi khởi động.')
+        except (ValueError,OSError) as exc: self.log.appendPlainText('Cơ khí: '+str(exc))
+
+    def load_mechanics(self):
+        if not MECHANICS_CONFIG.exists(): return
+        try:
+            g=Geometry(**json.loads(MECHANICS_CONFIG.read_text(encoding='utf-8'))).validate()
+            for key,w in self.mech_widgets.items(): w.setValue(getattr(g,key))
+            self.mech_verified.setChecked(False); self.geometry_changed()
+        except (ValueError,TypeError,OSError) as exc: self.log.appendPlainText('Không nạp được cơ khí: '+str(exc))
+
+    def update_aperture(self,latest):
+        self.jaws.width_mm=None; self.jaws.max_mm=None; self.jaws.object_width_mm=None
+        text='Độ mở: — mm · Chưa cấu hình / xác nhận cơ khí'
+        if self.geometry:
+            try:
+                if not self.calibrated.isChecked(): raise ValueError('Chưa xác nhận hiệu chuẩn encoder')
+                if not self.fb: raise ValueError('Chưa có phản hồi encoder')
+                width=self.geometry.width(self.fb['position'],self.open.value(),self.closed.value())
+                self.jaws.width_mm=width; self.jaws.max_mm=self.geometry.max_mm
+                self.jaws.object_width_mm=self.geometry.at_fraction(.55)
+                text=f'Độ mở theo mô hình: {width:.2f} mm / {self.geometry.max_mm:.2f} mm'
+                if self.jaws.stale: text+=' · Phản hồi cũ'
+                if latest['target'] is not None:
+                    try: text+=f" · Đích: {self.geometry.width(latest['target'],self.open.value(),self.closed.value()):.2f} mm"
+                    except ValueError: text+=' · Đích ngoài khoảng hiệu chuẩn'
+            except ValueError as exc: text='Độ mở: — mm · '+str(exc)
+        self.aperture.setText(text); self.monitor_aperture.setText(text)
+        self.monitor_feedback.setText(self.feedback.text())
+
     def spin(self,form,name,lo,hi,value,decimals):
         s=QDoubleSpinBox(); s.setDecimals(decimals); s.setRange(lo,hi); s.setValue(value); s.setSingleStep(10**-decimals); form.addRow(name,s); return s
     def refresh_ports(self, automatic=False):
@@ -194,6 +277,7 @@ class Window(QMainWindow):
         self._connecting=True; self.mode.setEnabled(False); self.connect_btn.setEnabled(False); self.backend.request('connect',port=self.port.currentText().split(' | ',1)[0].strip(),motor_id=self.mid.value() or None,mode=self.mode.currentData())
         self.backend.request('sim_object',present=self.object.isChecked())
     def mode_changed(self):
+        self.mech_verified.setChecked(False)
         sim=self.mode.currentData()=='simulation'
         self.object.setEnabled(sim); self.port.setEnabled(True); self.mid.setEnabled(not sim)
         self.connect_btn.setText('Connect simulation' if sim else 'Connect hardware')
@@ -265,6 +349,7 @@ class Window(QMainWindow):
             self.jaws.stale=not self.ready or latest['feedback_age']>.5
             if not self.fb: self.feedback.setText('Position — | Current — | Temperature —')
             self.jaws.position=self.fb['position'] if self.fb else None
+            self.update_aperture(latest)
             self.jaws.target=latest['target']; self.jaws.open_deg=self.open.value(); self.jaws.closed_deg=self.closed.value()
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=self.object.isChecked(); self.jaws.state=latest['state']; self.jaws.update()
             for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
@@ -274,9 +359,10 @@ class Window(QMainWindow):
         self.backend.stop_requested.set(); self.backend.quit_requested.set(); self.backend.join(timeout=3)
         if self.backend.is_alive():
             self.log.appendPlainText('Waiting for serial operation to end…'); event.ignore(); return
-        self.timer.stop(); self.port_timer.stop(); event.accept()
+        self.timer.stop(); self.port_timer.stop(); self.monitor.close(); event.accept()
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+
 
 

@@ -4,7 +4,7 @@ from dataclasses import asdict
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,
- QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog,QTabWidget,QScrollArea)
+ QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog,QTabWidget,QScrollArea,QSlider)
 from ports import discover, diagnose
 from control import Settings
 from backend import Backend
@@ -40,9 +40,8 @@ class Window(QMainWindow):
         layout.addWidget(QLabel('EC-A4310-P2-36 + Waveshare USB-CAN-A | servo position + current threshold'))
         mode_row=QHBoxLayout(); layout.addLayout(mode_row)
         self.mode=QComboBox(); self.mode.addItem('Simulation — no USB required','simulation'); self.mode.addItem('Real EC-A4310 — USB-CAN','real'); mode_row.addWidget(self.mode)
-        self.object=QCheckBox('Simulated object present'); self.object.setChecked(True); self.object.toggled.connect(lambda on:self.backend.request('sim_object',present=on)); mode_row.addWidget(self.object)
         self.allports=QCheckBox('Show ttyS / all ports'); self.allports.toggled.connect(lambda _:self.refresh_ports()); mode_row.addWidget(self.allports)
-        self.jaws=JawView(); layout.addWidget(self.jaws)
+        self.jaws=JawView(); self.jaws.setMinimumHeight(240); self.jaws.object_present=False; layout.addWidget(self.jaws)
         row=QHBoxLayout(); layout.addLayout(row)
         self.port=QComboBox(); self.port.setEditable(True); row.addWidget(self.port)
         self.refresh=QPushButton('Refresh ports'); self.refresh.clicked.connect(self.refresh_ports); row.addWidget(self.refresh)
@@ -74,7 +73,7 @@ class Window(QMainWindow):
         self.motion_buttons=[]; row=QHBoxLayout(); layout.addLayout(row)
         self.raw=QSpinBox(); self.raw.setRange(0,1000); self.raw.setValue(700); row.addWidget(self.raw)
         for label,raw in [('Move target',None),('OPEN',0),('CLOSE',1000)]:
-            b=QPushButton(label); b.clicked.connect(lambda checked=False,value=raw:self.backend.request('move',raw=self.raw.value() if value is None else value)); row.addWidget(b); self.motion_buttons.append(b)
+            b=QPushButton(label); b.clicked.connect(lambda checked=False,value=raw:self.backend.request('move',raw=self.raw.value() if value is None else value)); row.addWidget(b); b.setEnabled(False); self.motion_buttons.append(b)
         self.stop_btn=QPushButton('STOP — cease command stream'); self.stop_btn.setStyleSheet('background:#bd3030;color:white;font-weight:bold;'); self.stop_btn.clicked.connect(self.stop); row.addWidget(self.stop_btn)
         layout.addWidget(QLabel('STOP relies on existing motor heartbeat timeout (~500 ms); support payload before stopping.'))
         self.state=QLabel('DISCONNECTED'); layout.addWidget(self.state)
@@ -95,6 +94,16 @@ class Window(QMainWindow):
         control_layout.addWidget(self.jaws,1)
         self.feedback.setWordWrap(True); control_layout.addWidget(self.feedback)
         self.aperture=QLabel('Độ mở: — mm · Chưa cấu hình cơ khí'); control_layout.addWidget(self.aperture)
+        position_box=QWidget(); position_layout=QVBoxLayout(position_box); position_layout.setContentsMargins(0,0,0,0)
+        position_row=QHBoxLayout(); position_layout.addLayout(position_row)
+        position_row.addWidget(QLabel('Vị trí · 0 mở / 1000 đóng'))
+        self.position_slider=QSlider(Qt.Horizontal); self.position_slider.setRange(0,1000); self.position_slider.setValue(self.raw.value())
+        self.position_slider.setAccessibleName('Vị trí tay kẹp, mức đóng 0 đến 1000')
+        self.position_slider.valueChanged.connect(self.raw.setValue); self.raw.valueChanged.connect(self.position_slider.setValue)
+        position_row.addWidget(self.position_slider,1); position_row.addWidget(self.raw)
+        self.motion_buttons[0].setText('ĐẾN VỊ TRÍ'); position_row.addWidget(self.motion_buttons[0])
+        self.raw.setToolTip('Mức đóng theo hành trình góc; 500 không nhất thiết bằng nửa độ mở mm.')
+        control_layout.addWidget(position_box)
         actions=QHBoxLayout(); control_layout.addLayout(actions)
         for button,label,name in [(self.motion_buttons[1],'MỞ · OPEN','openButton'),(self.motion_buttons[2],'KẸP · CLOSE','closeButton'),(self.stop_btn,'DỪNG · STOP','stopButton')]:
             button.setText(label); button.setObjectName(name); button.setMinimumHeight(56); actions.addWidget(button)
@@ -118,9 +127,9 @@ class Window(QMainWindow):
         settings_layout.addWidget(calibration); settings_layout.addWidget(params)
         settings_layout.addWidget(self.save)
         self.build_mechanics(settings_layout)
-        advanced=QGroupBox('Mô phỏng và điều khiển nâng cao'); advanced_layout=QFormLayout(advanced)
-        advanced_layout.addRow(self.object); advanced_layout.addRow(self.udp)
-        target_row=QHBoxLayout(); target_row.addWidget(self.raw); target_row.addWidget(self.motion_buttons[0]); advanced_layout.addRow('Mức đóng 0–1000',target_row)
+        position_layout.addWidget(self.target_aperture)
+        advanced=QGroupBox('Kết nối chương trình ngoài'); advanced_layout=QFormLayout(advanced)
+        advanced_layout.addRow(self.udp)
         settings_layout.addWidget(advanced)
         self.monitor=QDialog(self,Qt.Window); self.monitor.setWindowTitle('EC Gripper · Theo dõi và nhật ký'); self.monitor.resize(850,650)
         monitor_layout=QVBoxLayout(self.monitor)
@@ -220,7 +229,7 @@ class Window(QMainWindow):
         self.update_target_aperture()
 
     def update_target_aperture(self,*_):
-        text=f'Mục tiêu {self.raw.value()}/1000 → {self.geometry.at_fraction(self.raw.value()/1000):.2f} mm (theo mô hình)' if self.geometry else 'Độ mở mục tiêu: — mm · Chờ đủ thông số hợp lệ'
+        text=f'Mục tiêu {self.raw.value()}/1000 → {self.geometry.at_fraction(self.raw.value()/1000):.2f} mm (theo mô hình)' if self.geometry else f'Đã chọn {self.raw.value()}/1000 · Độ mở đích: — mm (chưa có mô hình cơ khí)'
         self.target_aperture.setText(text)
 
     def save_mechanics(self):
@@ -305,10 +314,10 @@ class Window(QMainWindow):
     def connect_motor(self):
         if self.mode.currentData()=='real' and not self.port.currentText().strip(): self.log.appendPlainText('Select USB-CAN serial port'); return
         self._connecting=True; self.mode.setEnabled(False); self.connect_btn.setEnabled(False); self.backend.request('connect',port=self.port.currentText().split(' | ',1)[0].strip(),motor_id=self.mid.value() or None,mode=self.mode.currentData())
-        self.backend.request('sim_object',present=self.object.isChecked())
+        self.backend.request('sim_object',present=False)
     def mode_changed(self):
         sim=self.mode.currentData()=='simulation'
-        self.object.setEnabled(sim); self.port.setEnabled(True); self.mid.setEnabled(not sim)
+        self.port.setEnabled(True); self.mid.setEnabled(not sim)
         self.connect_btn.setText('Connect simulation' if sim else 'Connect hardware')
         self.refresh_ports()
         self.jaws.mode=self.mode.currentData(); self.jaws.update()
@@ -365,7 +374,7 @@ class Window(QMainWindow):
                 self._connecting=False; self.connect_btn.setEnabled(not data['connected'])
             elif kind=='finished': self.log.appendPlainText('Backend stopped')
         if latest:
-            self.mode.setEnabled(not latest['connected'] and not self._connecting); self.object.setEnabled(self.mode.currentData()=='simulation')
+            self.mode.setEnabled(not latest['connected'] and not self._connecting)
             self.active=latest['active']; self.pending=latest['pending']; self.fb=latest['fb']; self.ready=latest['connected']
             self.sync=True; self.arm.setChecked(latest['armed']); self.udp.setChecked(latest['udp']); self.sync=False
             target_text='—' if latest['target'] is None else f"{latest['target']:.3f} deg"
@@ -380,7 +389,7 @@ class Window(QMainWindow):
             self.jaws.position=self.fb['position'] if self.fb else None
             self.update_aperture(latest)
             self.jaws.target=latest['target']; self.jaws.open_deg=self.open.value(); self.jaws.closed_deg=self.closed.value()
-            self.jaws.mode=self.mode.currentData(); self.jaws.object_present=self.object.isChecked(); self.jaws.state=latest['state']; self.jaws.update()
+            self.jaws.mode=self.mode.currentData(); self.jaws.object_present=False; self.jaws.state=latest['state']; self.jaws.update()
             for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
             for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending)
             self.connect_btn.setEnabled(not self.ready and not self._connecting)
@@ -392,6 +401,7 @@ class Window(QMainWindow):
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+
 
 
 

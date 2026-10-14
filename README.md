@@ -186,3 +186,11 @@ Ví dụ toán học để thử giao diện (không phải bộ tối ưu phầ
 Góc encoder OPEN/CLOSED vẫn được hiệu chuẩn riêng trong phần điều khiển động cơ. Phần hiển thị dùng `s=(encoder-encoder_open)/(encoder_closed-encoder_open)` và `theta=theta_open+s*(theta_closed-theta_open)`, giả thiết tỷ số truyền không đổi. Các góc tự tính **không** được ghi vào hiệu chuẩn phần cứng hay gửi xuống động cơ. Đây là độ mở theo mô hình, không phải cảm biến đo khoảng cách trực tiếp.
 
 Bấm **Lưu thông số cơ khí** để lưu 5 giá trị và nhánh đã chọn vào `mechanical_settings.json`. Bộ số cũ có CLOSED=0 được chuyển thành Doffset khi đọc và giữ nhánh gần nhất; file chỉ được ghi lại khi bấm Lưu. Cấu hình cũ có CLOSED khác 0 cần chuyển đổi thủ công và được báo rõ, không tự ghi đè. Không còn ô xác nhận cơ khí riêng; ARM và xác nhận hiệu chuẩn encoder vẫn hoạt động như trước.
+
+
+
+## Chọn vị trí ở tab Điều khiển
+
+Kéo thanh trượt hoặc nhập **0–1000** (0 = mở, 1000 = đóng), rồi bấm **ĐẾN VỊ TRÍ**. Việc thay đổi giá trị chỉ chọn mục tiêu, không gửi lệnh chuyển động cho đến khi bấm nút. Cần kết nối và bật ARM như Open/Close. Độ mở đích theo mm được hiển thị ngay bên dưới nếu mô hình cơ khí hợp lệ; thang 0–1000 vẫn là hành trình góc, không phải mm.
+
+Đã bỏ lựa chọn **Simulated object present** khỏi GUI. Khi kết nối mô phỏng, vật giả lập được tắt, hình không vẽ vật và tay kẹp có thể chạy hết hành trình hoặc tới vị trí trung gian. Khả năng kiểm thử tiếp xúc trong backend vẫn được giữ để kiểm thử tự động.

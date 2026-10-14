@@ -12,11 +12,11 @@ class JawView(QWidget):
 
     def paintEvent(self,event):
         p=QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        p.fillRect(self.rect(),QColor('#121f2c'))
-        p.setPen(QPen(QColor('#1c2e3e'),1))
+        p.fillRect(self.rect(),QColor('#f8fbfe'))
+        p.setPen(QPen(QColor('#e4ebf2'),1))
         for x in range(0,self.width(),28): p.drawLine(x,0,x,self.height())
         for y in range(0,self.height(),28): p.drawLine(0,y,self.width(),y)
-        p.setFont(QFont('Sans',10)); p.setPen(QColor('#9cb2c5'))
+        p.setFont(QFont('Sans',10)); p.setPen(QColor('#52677c'))
         p.drawText(18,26,'MÔ PHỎNG' if self.mode=='simulation' else 'PHẢN HỒI ENCODER')
         p.drawText(18,47,'Sơ đồ 2D · độ mở theo mô hình cơ khí (mm)' if self.width_mm is not None else 'Sơ đồ 2D · chưa cấu hình mô hình độ mở mm')
         span=self.closed_deg-self.open_deg
@@ -52,14 +52,15 @@ class JawView(QWidget):
             object_width=117 if self.width_mm is None else 260*self.object_width_mm/self.max_mm
             box(-object_width/2,205,object_width,71,'#e9ba70','#ac733b',9)
             p.setPen(QColor('#513e27')); p.setFont(QFont('Sans',10)); p.drawText(QRectF(-58,225,116,25),Qt.AlignCenter,'VẬT MÔ PHỎNG')
-        p.setPen(QPen(QColor('#61d8c0'),1.5))
+        p.setPen(QPen(QColor('#087f72'),1.5))
         p.drawLine(int(-gap/2),294,int(gap/2),294)
         for x in (-gap/2,gap/2): p.drawLine(int(x),286,int(x),302)
         p.restore()
-        p.setFont(QFont('Sans',10)); p.setPen(QColor('#69dfc4') if valid and not self.stale else QColor('#e2b76e'))
+        p.setFont(QFont('Sans',10)); p.setPen(QColor('#087f72') if valid and not self.stale else QColor('#87590d'))
         caption=f'Mức đóng {closure*100:.0f}%  ·  Góc {self.position:.2f}°' if valid else 'Chờ phản hồi và hiệu chuẩn góc mở / đóng'
         if self.width_mm is not None: caption=f'Độ mở {self.width_mm:.2f} mm  ·  '+caption
         if valid and self.stale: caption+='  ·  Phản hồi cũ'
         p.drawText(18,self.height()-17,caption)
         p.end()
+
 

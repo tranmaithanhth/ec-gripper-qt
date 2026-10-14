@@ -19,11 +19,11 @@ class Trace(QWidget):
     def __init__(self):
         super().__init__(); self.points=deque(maxlen=500); self.setMinimumHeight(140)
     def paintEvent(self,event):
-        p=QPainter(self); p.fillRect(self.rect(),QColor('#102234'))
-        p.setPen(QColor('#d4e2ee')); p.drawText(15,22,'Actual current (A), −3 … +3; last 25 s nominal')
-        p.setPen(QColor('#456074')); mid=(self.height()+30)/2
+        p=QPainter(self); p.fillRect(self.rect(),QColor('#ffffff'))
+        p.setPen(QColor('#334155')); p.drawText(15,22,'Actual current (A), −3 … +3; last 25 s nominal')
+        p.setPen(QColor('#cbd5e1')); mid=(self.height()+30)/2
         p.drawLine(15,int(mid),self.width()-15,int(mid))
-        p.setPen(QPen(QColor('#38d6b4'),2)); data=list(self.points)
+        p.setPen(QPen(QColor('#087f72'),2)); data=list(self.points)
         for i in range(1,len(data)):
             if data[i-1] is None or data[i] is None: continue
             y1=mid-data[i-1]/3*(self.height()-50)/2; y2=mid-data[i]/3*(self.height()-50)/2
@@ -148,22 +148,36 @@ class Window(QMainWindow):
         self.tabs.setCornerWidget(self.settings_stop)
         old_root=self.takeCentralWidget(); self.setCentralWidget(shell); old_root.deleteLater()
         self.setStyleSheet("""
-            QWidget {background:#101923; color:#e4ecf4; font-size:13px;}
-            QLabel#title {font-size:25px; font-weight:700; color:#f7fbff;}
-            QLabel#muted {color:#91a4b6; font-size:12px;}
-            QTabWidget::pane {border:1px solid #2d4052; border-radius:8px;}
-            QTabBar::tab {padding:12px 30px; background:#172534; color:#93a8bc;}
-            QTabBar::tab:selected {color:#64dfc3; border-bottom:3px solid #64dfc3;}
-            QGroupBox {border:1px solid #314658; border-radius:8px; margin-top:16px; padding:16px; font-weight:bold;}
+            QWidget {background:#f4f7fb; color:#24364b; font-size:13px;}
+            QLabel#title {font-size:25px; font-weight:700; color:#16324f;}
+            QLabel#muted {color:#52677c; font-size:12px;}
+            QTabWidget::pane {border:1px solid #ccd7e3; border-radius:8px;}
+            QTabBar::tab {padding:12px 30px; background:#e8eef5; color:#52677c;}
+            QTabBar::tab:selected {background:#ffffff; color:#087f72; border-bottom:3px solid #087f72;}
+            QGroupBox {border:1px solid #ccd7e3; border-radius:8px; margin-top:16px; padding:16px; font-weight:bold;}
             QGroupBox::title {subcontrol-origin:margin; left:12px; padding:0 5px;}
-            QPushButton {background:#233649; border:1px solid #3b5369; border-radius:7px; padding:9px 14px;}
-            QPushButton:hover {background:#304b63;}
-            QPushButton#openButton {background:#235870; font-size:17px; font-weight:bold;}
-            QPushButton#closeButton {background:#137a69; font-size:17px; font-weight:bold;}
-            QPushButton#stopButton {background:#a33443; color:white; font-weight:bold;}
-            QPushButton:disabled {background:#1b2936; color:#617387; border-color:#28394a;}
-            QComboBox,QSpinBox,QDoubleSpinBox,QPlainTextEdit {background:#172534; border:1px solid #3b5369; border-radius:4px; padding:6px;}
+            QPushButton {background:#ffffff; border:1px solid #b8c8d8; border-radius:7px; padding:9px 14px;}
+            QPushButton:hover {background:#e3edf8; border-color:#7295b6;}
+            QPushButton:pressed {background:#d1e2f2;}
+            QPushButton#openButton {background:#216b96; color:white; font-size:17px; font-weight:bold;}
+            QPushButton#closeButton {background:#087f72; color:white; font-size:17px; font-weight:bold;}
+            QPushButton#stopButton {background:#b93849; color:white; font-weight:bold;}
+            QPushButton#openButton:hover {background:#195678;}
+            QPushButton#closeButton:hover {background:#06675d;}
+            QPushButton#stopButton:hover {background:#9e2939;}
+            QPushButton:disabled, QPushButton#openButton:disabled, QPushButton#closeButton:disabled {background:#e5eaf0; color:#68798b; border-color:#d0dae4;}
+            QComboBox,QSpinBox,QDoubleSpinBox,QPlainTextEdit {background:#ffffff; color:#24364b; border:1px solid #b8c8d8; border-radius:4px; padding:6px; selection-background-color:#216b96; selection-color:white;}
+            QComboBox QAbstractItemView {background:white; color:#24364b; selection-background-color:#d9eaf7; selection-color:#16324f;}
+            QComboBox:disabled,QSpinBox:disabled,QDoubleSpinBox:disabled {background:#e9eef4; color:#68798b;}
+            QSlider::groove:horizontal {height:6px; background:#cbd7e3; border-radius:3px;}
+            QSlider::sub-page:horizontal {background:#216b96; border-radius:3px;}
+            QSlider::handle:horizontal {background:#216b96; border:1px solid #185578; width:16px; margin:-5px 0; border-radius:8px;}
+            QCheckBox::indicator {width:14px; height:14px; border:1px solid #8498ad; border-radius:3px; background:white;}
+            QCheckBox::indicator:checked {background:#087f72; border:2px solid #055b52;}
+            QCheckBox::indicator:disabled {background:#dce4ec; border-color:#a6b6c6;}
+            QCheckBox::indicator:checked:disabled {background:#8bafaa;}
             QScrollArea {border:none;}
+            QToolTip {background:#ffffff; color:#24364b; border:1px solid #b8c8d8;}
         """)
         self.config_controls=[self.open,self.closed,self.open_set,self.close_set,self.calibrated,self.speed,self.close_a,self.hold_a,self.contact_a,self.preload,self.timeout,self.save]
         self.config_controls.extend(self.mechanical_controls)
@@ -401,6 +415,7 @@ class Window(QMainWindow):
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+
 
 
 

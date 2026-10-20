@@ -34,6 +34,21 @@ class BackendTests(unittest.TestCase):
             if fn(): return
             time.sleep(.01)
         self.fail('Timed out')
+    def test_disconnect_releases_udp_port(self):
+        b=Backend(queue.Queue())
+        b.handle('udp',dict(enabled=True))
+        sock=b.udp
+        try:
+            b.disconnect()
+            self.assertIsNone(b.udp)
+            self.assertFalse(b.armed)
+            self.assertEqual(sock.fileno(),-1)
+            # A fresh session can bind immediately after Disconnect.
+            b.handle('udp',dict(enabled=True))
+            self.assertIsNotNone(b.udp)
+        finally:
+            b.disconnect()
+
     def test_udp_completion_heartbeat_and_stop(self):
         with patch('ec_a4310_waveshare_test.WaveshareUsbCanA',FakeCan),patch('ec_a4310_waveshare_test.EC_A4310',FakeMotor),patch.object(FakeCan,'recv_can',lambda self,timeout: None if self.missing else Frame()):
             b=Backend(queue.Queue()); rx=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); tx=socket.socket(socket.AF_INET,socket.SOCK_DGRAM)

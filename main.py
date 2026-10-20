@@ -34,7 +34,7 @@ class Window(QMainWindow):
         super().__init__(); self.setWindowTitle('EC Gripper Qt • Simulation / Real motor'); self.resize(1080,760)
         self.events=queue.Queue(); self.backend=Backend(self.events); self.backend.start()
         self._ports_initialized=False; self._connecting=False; self._port_signature=None; self._diagnosing=False
-        self.fb=None; self.ready=False; self.active=False; self.pending=False; self.sync=False
+        self.fb=None; self.ready=False; self.active=False; self.pending=False
         self.setStyleSheet('QGroupBox {font-weight:bold;} QPushButton {padding:7px;}')
         root=QWidget(); self.setCentralWidget(root); layout=QVBoxLayout(root)
         layout.addWidget(QLabel('EC-A4310-P2-36 + Waveshare USB-CAN-A | servo position + current threshold'))
@@ -58,7 +58,6 @@ class Window(QMainWindow):
         self.closed=self.spin(c,'Closed angle (deg)',-100000,100000,0,3)
         self.open_set=QPushButton('Use current angle as OPEN'); self.open_set.clicked.connect(lambda:self.capture(self.open)); c.addRow(self.open_set)
         self.close_set=QPushButton('Use current angle as CLOSED'); self.close_set.clicked.connect(lambda:self.capture(self.closed)); c.addRow(self.close_set)
-        self.calibrated=QCheckBox('Both angles verified within mechanical travel'); c.addRow(self.calibrated)
         params=QGroupBox('Current thresholds — not force in N'); groups.addWidget(params); f=QFormLayout(params)
         self.speed=self.spin(f,'Speed (rpm)',.1,5,1,1)
         self.close_a=self.spin(f,'I_close / I_open max (A)',.1,3,.5,1)
@@ -68,8 +67,6 @@ class Window(QMainWindow):
         self.timeout=self.spin(f,'Move timeout (s)',2,120,20,1)
         row=QHBoxLayout(); layout.addLayout(row)
         self.save=QPushButton('Save settings'); self.save.clicked.connect(self.save_settings); row.addWidget(self.save)
-        self.arm=QCheckBox('ARM — permit manual / VR5 motion'); self.arm.toggled.connect(self.arm_changed); row.addWidget(self.arm)
-        self.udp=QCheckBox('VR5 UDP :5050 → :5051'); self.udp.toggled.connect(lambda on:self.backend.request('udp',enabled=on) if not self.sync else None); row.addWidget(self.udp)
         self.motion_buttons=[]; row=QHBoxLayout(); layout.addLayout(row)
         self.raw=QSpinBox(); self.raw.setRange(0,1000); self.raw.setValue(700); row.addWidget(self.raw)
         for label,raw in [('Move target',None),('OPEN',0),('CLOSE',1000)]:
@@ -108,14 +105,10 @@ class Window(QMainWindow):
         for button,label,name in [(self.motion_buttons[1],'MỞ · OPEN','openButton'),(self.motion_buttons[2],'KẸP · CLOSE','closeButton'),(self.stop_btn,'DỪNG · STOP','stopButton')]:
             button.setText(label); button.setObjectName(name); button.setMinimumHeight(56); actions.addWidget(button)
         self.stop_btn.setStyleSheet('')
-        enable_row=QHBoxLayout()
-        enable_row.addWidget(self.arm); enable_row.addStretch(); enable_row.addWidget(self.udp)
-        control_layout.addLayout(enable_row)
-        self.action_message=QLabel('Kết nối và kiểm tra hiệu chuẩn trong tab Cài đặt, sau đó bật ARM.')
+        self.action_message=QLabel('Kết nối trong tab Cài đặt để tự bật điều khiển và UDP VR5.')
         self.action_message.setWordWrap(True); control_layout.addWidget(self.action_message)
         self.log.textChanged.connect(lambda:self.action_message.setText(self.log.document().lastBlock().text()))
-        self.arm.setText('ARM · Cho phép điều khiển tay kẹp')
-        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng.')
+        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Kết nối lại hoặc Save settings để tiếp tục.')
         notice.setWordWrap(True); notice.setObjectName('muted'); control_layout.addWidget(notice)
         self.tabs.addTab(control_page,'Điều khiển')
         settings_page=QWidget(); settings_layout=QVBoxLayout(settings_page); settings_layout.setSpacing(14)
@@ -128,6 +121,8 @@ class Window(QMainWindow):
         settings_layout.addWidget(connection)
         settings_layout.addWidget(calibration); settings_layout.addWidget(params)
         settings_layout.addWidget(self.save)
+        settings_hint=QLabel('Bấm DỪNG để sửa thông số. Save settings áp dụng thông số và bật lại điều khiển khi đã kết nối.')
+        settings_hint.setWordWrap(True); settings_layout.addWidget(settings_hint)
         self.build_mechanics(settings_layout)
         position_layout.addWidget(self.target_aperture)
         self.monitor=QDialog(self,Qt.Window); self.monitor.setWindowTitle('EC Gripper · Theo dõi và nhật ký'); self.monitor.resize(850,650)
@@ -178,7 +173,7 @@ class Window(QMainWindow):
             QScrollArea {border:none;}
             QToolTip {background:#ffffff; color:#24364b; border:1px solid #b8c8d8;}
         """)
-        self.config_controls=[self.open,self.closed,self.open_set,self.close_set,self.calibrated,self.speed,self.close_a,self.hold_a,self.contact_a,self.preload,self.timeout,self.save]
+        self.config_controls=[self.open,self.closed,self.open_set,self.close_set,self.speed,self.close_a,self.hold_a,self.contact_a,self.preload,self.timeout,self.save]
         self.config_controls.extend(self.mechanical_controls)
         self.load_mechanics()
         self.mode.currentIndexChanged.connect(self.mode_changed)
@@ -271,7 +266,7 @@ class Window(QMainWindow):
         text='Độ mở: — mm · Chưa đủ thông số cơ khí hợp lệ'
         if self.geometry:
             try:
-                if not self.calibrated.isChecked(): raise ValueError('Chưa xác nhận hiệu chuẩn encoder')
+                self.settings()
                 if not self.fb: raise ValueError('Chưa có phản hồi encoder')
                 width=self.geometry.width(self.fb['position'],self.open.value(),self.closed.value())
                 self.jaws.width_mm=width; self.jaws.max_mm=self.geometry.max_mm
@@ -335,26 +330,30 @@ class Window(QMainWindow):
         self.refresh_ports()
         self.jaws.mode=self.mode.currentData(); self.jaws.update()
         if sim:
-            self.open.setValue(0); self.closed.setValue(90); self.calibrated.setChecked(True)
+            self.open.setValue(0); self.closed.setValue(90)
             self.speed.setValue(2); self.close_a.setValue(.5); self.hold_a.setValue(.3); self.contact_a.setValue(.4)
         else:
             self.open.setValue(0); self.closed.setValue(0)
             self.load_settings()
-            self.calibrated.setChecked(False)
-            self.log.appendPlainText('REAL MODE: verify mechanical calibration before ARM; demo angles are not hardware calibration.')
+            self.log.appendPlainText('Động cơ thật: dùng góc OPEN/CLOSED đã lưu; kết nối thành công sẽ tự bật điều khiển và UDP.')
     def capture(self,widget):
         if self.fb and self.backend.can and time.monotonic()-self.backend.fb_time<.5:
             widget.setValue(self.fb['position'])
         else: self.log.appendPlainText('Connect and obtain fresh position first')
     def settings(self):
-        if not self.calibrated.isChecked(): raise ValueError('Verify OPEN/CLOSED calibration first')
         s=Settings(open_deg=self.open.value(),closed_deg=self.closed.value(),speed_rpm=self.speed.value(),close_a=self.close_a.value(),hold_a=self.hold_a.value(),contact_a=self.contact_a.value(),preload_deg=self.preload.value(),move_timeout_s=self.timeout.value())
         s.validate(); return s
     def save_settings(self):
         try:
+            s=self.settings()
             if self.mode.currentData()=='simulation':
-                self.log.appendPlainText('Simulation uses demo calibration; hardware settings were not overwritten'); return
-            s=self.settings(); CONFIG.write_text(json.dumps(asdict(s),indent=2)+'\n',encoding='utf-8'); self.log.appendPlainText('Saved hardware_settings.json; Arm remains an explicit action each session')
+                self.log.appendPlainText('Đã áp dụng thông số mô phỏng; không ghi đè cấu hình phần cứng.')
+            else:
+                CONFIG.write_text(json.dumps(asdict(s),indent=2)+'\n',encoding='utf-8')
+                self.log.appendPlainText('Đã lưu hardware_settings.json.')
+            if self.ready:
+                self.backend.request('settings',settings=s)
+                self.backend.request('arm',enabled=True)
         except Exception as e: self.log.appendPlainText(str(e))
     def load_settings(self):
         if not CONFIG.exists(): return
@@ -362,17 +361,17 @@ class Window(QMainWindow):
             s=Settings(**json.loads(CONFIG.read_text(encoding='utf-8')))
             for widget,value in [(self.open,s.open_deg),(self.closed,s.closed_deg),(self.speed,s.speed_rpm),(self.close_a,s.close_a),(self.hold_a,s.hold_a),(self.contact_a,s.contact_a),(self.preload,s.preload_deg),(self.timeout,s.move_timeout_s)]:
                 if value is not None: widget.setValue(value)
-            # User rechecks calibration after each restart (encoder origin may change).
-            self.log.appendPlainText('Settings loaded. Recheck calibration against current motor angle.')
+            self.log.appendPlainText('Đã nạp góc OPEN/CLOSED và thông số động cơ đã lưu.')
         except Exception as e: self.log.appendPlainText('Load settings: '+str(e))
-    def arm_changed(self,on):
-        if self.sync: return
+    def enable_connected_controls(self):
+        # Run once per successful connection, never from periodic status updates.
         try:
-            if on:
-                s=self.settings(); self.backend.request('settings',settings=s)
-            self.backend.request('arm',enabled=on)
-        except Exception as e:
-            self.log.appendPlainText(str(e)); self.sync=True; self.arm.setChecked(False); self.sync=False
+            s=self.settings()
+            self.backend.request('settings',settings=s)
+            self.backend.request('arm',enabled=True)
+        except ValueError as exc:
+            self.log.appendPlainText('Đã kết nối. Nhập góc OPEN/CLOSED hợp lệ rồi bấm Save settings: '+str(exc))
+        self.backend.request('udp',enabled=True)
     def stop(self): self.backend.stop_requested.set()
     def poll(self):
         latest=None
@@ -385,14 +384,17 @@ class Window(QMainWindow):
             elif kind=='status': latest=data
             elif kind=='connection':
                 self._connecting=False; self.connect_btn.setEnabled(not data['connected'])
+                if data['connected']: self.enable_connected_controls()
             elif kind=='finished': self.log.appendPlainText('Backend stopped')
         if latest:
             self.mode.setEnabled(not latest['connected'] and not self._connecting)
             self.active=latest['active']; self.pending=latest['pending']; self.fb=latest['fb']; self.ready=latest['connected']
-            self.sync=True; self.arm.setChecked(latest['armed']); self.udp.setChecked(latest['udp']); self.sync=False
             target_text='—' if latest['target'] is None else f"{latest['target']:.3f} deg"
             self.overview.setText(f"{'MÔ PHỎNG' if self.mode.currentData()=='simulation' else 'ĐỘNG CƠ THẬT'} · {'Đã kết nối' if self.ready else 'Chưa kết nối'} · {latest['state']}" + (f" · {latest['error']}" if latest['error'] else ''))
-            self.state.setText(f"{latest['state']} | {'CONNECTED' if self.ready else 'DISCONNECTED'} | {'ARMED' if latest['armed'] else 'DISARMED'} | Target {target_text} | I_limit {latest['limit']:.1f} A | {latest['error']}")
+            control_text='Sẵn sàng điều khiển' if latest['armed'] else 'Điều khiển đang dừng'
+            udp_text='UDP VR5 :5050 → :5051' if latest['udp'] else 'UDP chưa bật'
+            self.overview.setText(self.overview.text()+f' · {control_text} · {udp_text}')
+            self.state.setText(f"{latest['state']} | {'CONNECTED' if self.ready else 'DISCONNECTED'} | {control_text} | {udp_text} | Target {target_text} | I_limit {latest['limit']:.1f} A | {latest['error']}")
             if self.fb:
                 cur=self.fb.get('current_a'); temp=self.fb.get('temperature_c')
                 self.feedback.setText(f"Position {self.fb['position']:.3f} deg | Current {cur if cur is not None else '—'} A | Temperature {temp if temp is not None else '—'} C | Feedback age {latest['feedback_age']:.2f} s")

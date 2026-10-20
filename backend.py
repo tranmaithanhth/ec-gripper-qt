@@ -21,7 +21,9 @@ class Backend(threading.Thread):
     def disconnect(self):
         self.abort('Disconnect'); self.armed=False
         if self.can: self.can.close()
-        self.can=self.motor=self.fb=None; self.emit('connection',connected=False)
+        self.can=self.motor=self.fb=None
+        if self.udp: self.udp.close(); self.udp=None
+        self.emit('connection',connected=False)
     def connect(self,port,motor_id,mode="real"):
         if self.can: raise RuntimeError('Disconnect first')
         from ec_a4310_waveshare_test import WaveshareUsbCanA, EC_A4310
@@ -41,7 +43,7 @@ class Backend(threading.Thread):
             self.fb={'position':pos,'current_a':None,'temperature_c':None,'error':'0 (OK)'}
             self.fb_time=time.monotonic(); self.power_ready_at=time.monotonic()+(0 if self.mode=="simulation" else 5.2)
             self.emit('connection',connected=True,motor_id=self.motor.motor_id)
-            self.emit('log',message='Simulation connected. Demo calibration 0–90 deg; press ARM.' if self.mode=='simulation' else 'Connected without motion. Wait 5.2 s, calibrate and Arm.')
+            self.emit('log',message='Simulation connected. Demo calibration 0–90 deg.' if self.mode=='simulation' else 'Connected without motion. Wait 5.2 s before movement.')
         except Exception:
             self.can.close(); self.can=self.motor=self.fb=None; raise
     def move(self,raw,remote=False):

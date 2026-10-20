@@ -18,6 +18,48 @@
 
 Chưa có file .slx nguồn nên bản này chưa chuyển hoặc nhúng mô hình Simulink. Simulation hiện là mô hình Python đơn giản. MATLAB có thể gửi lệnh qua `matlab/gripper_command.m`; đây là UDP client chứ không phải Simulink model hoặc vòng điều khiển realtime. Muốn dùng đúng mô hình .slx, cần xác định đầu vào/ra, chu kỳ mẫu và toolbox của mô hình đó. Không cần MATLAB để chạy GUI này.
 
+## Bản gọn: hai file trong portable/
+
+Thư mục `portable/` được **thêm mới**; toàn bộ mã nguồn nhiều file hiện tại vẫn được giữ.
+
+- `portable/ec_gripper.py`: đầy đủ GUI Qt, mô phỏng, cơ khí, USB-CAN EC-A4310, UDP VR5 và cửa sổ theo dõi/nhật ký. Không import các file Python khác của project.
+- `portable/gripper_settings.json`: cài đặt chung gồm động cơ thật, mô phỏng, cơ khí, cổng USB/Motor ID và vị trí mục tiêu. File luôn được tìm cạnh script, không phụ thuộc thư mục Terminal.
+
+Chạy bằng môi trường hiện có, từ thư mục project:
+
+```bash
+.venv/bin/python3 portable/ec_gripper.py
+```
+
+Để chuyển thông số đã lưu của bản nhiều file sang bản gọn, chạy một lần:
+
+```bash
+.venv/bin/python3 portable/ec_gripper.py --import-settings .
+.venv/bin/python3 portable/ec_gripper.py
+```
+
+Lệnh nhập đọc `hardware_settings.json` và `mechanical_settings.json` trong thư mục chỉ định, ghi vào JSON chung rồi thoát. File nguồn cũ không bị thay đổi. Nếu chưa có thông số cũ, nhập trên GUI và bấm **Save settings** hoặc **Lưu thông số cơ khí**. JSON mẫu để góc động cơ thật trống và r/l bằng 0 vì chưa biết thông số thực tế của máy; không lấy góc mô phỏng làm góc motor thật.
+
+Khi chuyển máy, chỉ copy **hai file trong portable/** và giữ chúng cạnh nhau. Đây là mã Python tự chứa mã project, không phải executable có đóng gói Python/Qt. Máy đích vẫn cần Python 3.10–3.13, PySide6 6.8.3 và pyserial. Trên Ubuntu, mở Terminal tại thư mục chứa hai file:
+
+```bash
+python3 -m venv ../.venv-gripper
+../.venv-gripper/bin/python -m pip install "PySide6==6.8.3" "pyserial>=3.5,<4"
+../.venv-gripper/bin/python ec_gripper.py
+```
+
+Nếu Qt báo thiếu xcb-cursor: `sudo apt install libxcb-cursor0`. Chọn lại cổng USB nếu máy mới dùng tên cổng khác. Trên Windows, có thể dùng `py -m pip install "PySide6==6.8.3" "pyserial>=3.5,<4"` rồi `py ec_gripper.py`.
+
+**Save settings** lưu cấu hình động cơ theo chế độ đang chọn; cấu hình mô phỏng không ghi đè động cơ thật. **Lưu thông số cơ khí** chỉ cập nhật phần cơ khí trong cùng JSON. Cổng, Motor ID và mục tiêu được ghi khi kết nối, Save settings hoặc đóng chương trình. Góc/thông số cơ khí chỉnh dở chỉ được lưu khi bấm nút lưu tương ứng. JSON lỗi được báo và không bị ghi đè bằng mặc định. File tạm chỉ tồn tại trong lúc ghi và được xóa sau khi hoàn tất.
+
+Kiểm tra thư viện và định dạng JSON mà không mở cổng:
+
+```bash
+python ec_gripper.py --check
+```
+
+Đã kiểm tra bản gộp với 21 bài kiểm tra logic/driver và thử riêng trong thư mục chỉ có hai file: GUI, lưu/nạp cài đặt, chuyển mô phỏng/phần cứng giả lập, UDP COMPLETE, STOP, nhật ký và nhập JSON cũ. Chưa kiểm thử motor thật trên máy tạo bản gộp.
+
 ## Cài đặt
 
 Yêu cầu Python 3.10 trở lên, Windows hoặc Ubuntu 22.04.

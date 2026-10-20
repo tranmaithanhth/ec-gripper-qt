@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "hardware": {
+    "open_deg": null,
+    "closed_deg": null,
+    "speed_rpm": 1.0,
+    "close_a": 0.5,
+    "hold_a": 0.3,
+    "contact_a": 0.4,
+    "preload_deg": 1.0,
+    "tolerance_deg": 0.25,
+    "move_timeout_s": 20.0,
+    "max_temp_c": 70.0
+  },
+  "mechanics": {
+    "version": 2,
+    "max_mm": 80.0,
+    "r_mm": 0.0,
+    "l_mm": 0.0,
+    "e_mm": 0.0,
+    "doffset_mm": 0.0,
+    "selected_angles": null
+  },
+  "connection": {
+    "port": "",
+    "motor_id": 0,
+    "show_all_ports": false
+  },
+  "ui": {
+    "target_position": 700
+  },
+  "simulation": {
+    "open_deg": 0.0,
+    "closed_deg": 90.0,
+    "speed_rpm": 2.0,
+    "close_a": 0.5,
+    "hold_a": 0.3,
+    "contact_a": 0.4,
+    "preload_deg": 1.0,
+    "tolerance_deg": 0.25,
+    "move_timeout_s": 20.0,
+    "max_temp_c": 70.0
+  }
+}

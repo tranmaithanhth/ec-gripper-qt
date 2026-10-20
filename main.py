@@ -4,7 +4,7 @@ from dataclasses import asdict
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import (QApplication,QMainWindow,QWidget,QVBoxLayout,QHBoxLayout,
- QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog,QTabWidget,QScrollArea,QSlider)
+ QFormLayout,QDoubleSpinBox,QSpinBox,QPushButton,QLabel,QComboBox,QCheckBox,QPlainTextEdit,QGroupBox,QDialog,QTabWidget,QScrollArea,QSlider,QSizePolicy)
 from ports import discover, diagnose
 from control import Settings
 from backend import Backend
@@ -31,7 +31,7 @@ class Trace(QWidget):
 
 class Window(QMainWindow):
     def __init__(self):
-        super().__init__(); self.setWindowTitle('EC Gripper Qt • Simulation / Real motor'); self.resize(1080,760)
+        super().__init__(); self.setWindowTitle('EC Gripper Qt • Simulation / Real motor'); self.resize(1200,720)
         self.events=queue.Queue(); self.backend=Backend(self.events); self.backend.start()
         self._ports_initialized=False; self._connecting=False; self._port_signature=None; self._diagnosing=False
         self.fb=None; self.ready=False; self.active=False; self.pending=False
@@ -41,7 +41,7 @@ class Window(QMainWindow):
         mode_row=QHBoxLayout(); layout.addLayout(mode_row)
         self.mode=QComboBox(); self.mode.addItem('Real EC-A4310 — USB-CAN','real'); self.mode.addItem('Simulation — no USB required','simulation'); mode_row.addWidget(self.mode)
         self.allports=QCheckBox('Show ttyS / all ports'); self.allports.toggled.connect(lambda _:self.refresh_ports()); mode_row.addWidget(self.allports)
-        self.jaws=JawView(); self.jaws.setMinimumHeight(240); self.jaws.object_present=False; layout.addWidget(self.jaws)
+        self.jaws=JawView(); self.jaws.setMinimumHeight(180); self.jaws.object_present=False; layout.addWidget(self.jaws)
         row=QHBoxLayout(); layout.addLayout(row)
         self.port=QComboBox(); self.port.setEditable(True); row.addWidget(self.port)
         self.refresh=QPushButton('Refresh ports'); self.refresh.clicked.connect(self.refresh_ports); row.addWidget(self.refresh)
@@ -78,14 +78,14 @@ class Window(QMainWindow):
         self.trace=Trace(); layout.addWidget(self.trace)
         self.log=QPlainTextEdit(); self.log.setReadOnly(True); self.log.setMaximumBlockCount(600); layout.addWidget(self.log)
         # Rehouse existing controls without changing their signals or motor commands.
-        shell=QWidget(); outer=QVBoxLayout(shell); outer.setContentsMargins(20,16,20,16)
-        title=QLabel('EC GRIPPER'); title.setObjectName('title'); outer.addWidget(title)
-        subtitle=QLabel('EC-A4310 · Điều khiển tay kẹp'); subtitle.setObjectName('muted'); outer.addWidget(subtitle)
+        shell=QWidget(); outer=QVBoxLayout(shell); outer.setContentsMargins(12,10,12,10); outer.setSpacing(6)
+        title=QLabel('EC GRIPPER'); title.setObjectName('title'); header=QHBoxLayout(); header.addWidget(title); outer.addLayout(header)
+        subtitle=QLabel('EC-A4310 · Điều khiển tay kẹp'); subtitle.setObjectName('muted'); header.addWidget(subtitle); header.addStretch()
         self.tabs=QTabWidget(); outer.addWidget(self.tabs)
         control_page=QWidget(); control_layout=QVBoxLayout(control_page)
-        control_layout.setContentsMargins(16,16,16,16); control_layout.setSpacing(12)
+        control_layout.setContentsMargins(10,8,10,8); control_layout.setSpacing(6)
         status_row=QHBoxLayout(); control_layout.addLayout(status_row)
-        self.overview=QLabel('Chưa kết nối'); status_row.addWidget(self.overview,1)
+        self.overview=QLabel('Chưa kết nối'); self.overview.setWordWrap(True); self.overview.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred); status_row.addWidget(self.overview,1)
         settings_link=QPushButton('Cài đặt kết nối →'); settings_link.clicked.connect(lambda:self.tabs.setCurrentIndex(1)); status_row.addWidget(settings_link)
         self.monitor_button=QPushButton('Theo dõi / Nhật ký ↗'); self.monitor_button.clicked.connect(self.show_monitor); status_row.addWidget(self.monitor_button)
         quick_row=QHBoxLayout(); control_layout.addLayout(quick_row)
@@ -113,11 +113,11 @@ class Window(QMainWindow):
         control_layout.addWidget(position_box)
         actions=QHBoxLayout(); control_layout.addLayout(actions)
         for button,label,name in [(self.motion_buttons[1],'MỞ · OPEN','openButton'),(self.motion_buttons[2],'KẸP · CLOSE','closeButton'),(self.stop_btn,'DỪNG · STOP','stopButton')]:
-            button.setText(label); button.setObjectName(name); button.setMinimumHeight(56); actions.addWidget(button)
+            button.setText(label); button.setObjectName(name); button.setMinimumHeight(44); actions.addWidget(button)
         self.stop_btn.setStyleSheet('')
         self.action_message=QLabel('Chọn Connect real gripper hoặc Connect simulator để bắt đầu.')
-        self.action_message.setWordWrap(True); control_layout.addWidget(self.action_message)
-        self.log.textChanged.connect(lambda:self.action_message.setText(self.log.document().lastBlock().text()))
+        self.action_message.setWordWrap(False); self.action_message.setFixedHeight(20); self.action_message.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed); control_layout.addWidget(self.action_message)
+        self.log.textChanged.connect(self.update_action_message)
         notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Kết nối lại hoặc Save settings để tiếp tục.')
         notice.setWordWrap(True); notice.setObjectName('muted'); control_layout.addWidget(notice)
         self.tabs.addTab(control_page,'Điều khiển')
@@ -153,14 +153,14 @@ class Window(QMainWindow):
         old_root=self.takeCentralWidget(); self.setCentralWidget(shell); old_root.deleteLater()
         self.setStyleSheet("""
             QWidget {background:#f4f7fb; color:#24364b; font-size:13px;}
-            QLabel#title {font-size:25px; font-weight:700; color:#16324f;}
+            QLabel#title {font-size:21px; font-weight:700; color:#16324f;}
             QLabel#muted {color:#52677c; font-size:12px;}
             QTabWidget::pane {border:1px solid #ccd7e3; border-radius:8px;}
-            QTabBar::tab {padding:12px 30px; background:#e8eef5; color:#52677c;}
+            QTabBar::tab {padding:8px 24px; background:#e8eef5; color:#52677c;}
             QTabBar::tab:selected {background:#ffffff; color:#087f72; border-bottom:3px solid #087f72;}
             QGroupBox {border:1px solid #ccd7e3; border-radius:8px; margin-top:16px; padding:16px; font-weight:bold;}
             QGroupBox::title {subcontrol-origin:margin; left:12px; padding:0 5px;}
-            QPushButton {background:#ffffff; border:1px solid #b8c8d8; border-radius:7px; padding:9px 14px;}
+            QPushButton {background:#ffffff; border:1px solid #b8c8d8; border-radius:7px; padding:6px 12px;}
             QPushButton:hover {background:#e3edf8; border-color:#7295b6;}
             QPushButton:pressed {background:#d1e2f2;}
             QPushButton#openButton {background:#216b96; color:white; font-size:17px; font-weight:bold;}
@@ -185,11 +185,27 @@ class Window(QMainWindow):
         """)
         self.config_controls=[self.open,self.closed,self.open_set,self.close_set,self.speed,self.close_a,self.hold_a,self.contact_a,self.preload,self.timeout,self.save]
         self.config_controls.extend(self.mechanical_controls)
+        # Long feedback and geometry messages must wrap rather than widen the window.
+        for label in (self.feedback,self.aperture,self.target_aperture):
+            label.setWordWrap(True); label.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
         self.load_mechanics()
         self.mode.currentIndexChanged.connect(self.mode_changed)
         self.mode_changed()
         self.timer=QTimer(self); self.timer.timeout.connect(self.poll); self.timer.start(50)
         self.port_timer=QTimer(self); self.port_timer.timeout.connect(self.auto_refresh_ports); self.port_timer.start(2000)
+        available=self.screen().availableGeometry()
+        self.resize(min(1200,available.width()-32),min(720,available.height()-48))
+        self.move(available.x()+(available.width()-self.width())//2,available.y()+16)
+
+    def update_action_message(self):
+        message=self.log.document().lastBlock().text()
+        self.action_message.setText(self.action_message.fontMetrics().elidedText(message,Qt.ElideRight,max(100,self.action_message.width())))
+        self.action_message.setToolTip(message)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        if hasattr(self,'action_message'): self.update_action_message()
+
     def show_monitor(self):
         self.monitor.show(); self.monitor.raise_(); self.monitor.activateWindow()
 

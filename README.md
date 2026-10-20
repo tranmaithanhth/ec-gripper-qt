@@ -33,6 +33,17 @@ python main.py
 
 Nếu chưa có venv: `sudo apt install python3-venv`. Nếu Qt thiếu xcb-cursor: `sudo apt install libxcb-cursor0`.
 
+Requirements cố định `PySide6==6.8.3`. Đã tái hiện lỗi `Fatal Python error: none_dealloc: deallocating None` với Python 3.10 + PySide6 6.12.0 khi gọi Qt lặp lại; lỗi có thể xuất hiện trong `visual.py` hoặc hàm Qt khác. Nếu đã cài 6.12.0, đóng ứng dụng rồi dùng đúng Python chạy chương trình để cài lại:
+
+```bash
+python -m pip uninstall -y PySide6_Pdf PySide6_WebEngine
+python -m pip install --upgrade --force-reinstall -r requirements.txt
+python -m pip check
+python main.py
+```
+
+Dùng `python3` thay `python` nếu đó là lệnh đang dùng để chạy ứng dụng. Không cần sửa `visual.py` hoặc thay đổi CAN/UDP cho lỗi thư viện này.
+
 Windows, mở Command Prompt tại thư mục ec-gripper-qt:
 
 ```bat

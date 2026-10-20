@@ -55,8 +55,8 @@ python main.py
 
 ## Chạy mô phỏng trước
 
-1. Giữ chế độ **Simulation — no USB required**.
-2. Nhấn **Connect**. Góc giả lập ban đầu 0°, demo calibration 0–90°.
+1. Ở tab **Điều khiển**, nhấn **Connect simulator** để tự chọn Simulation và kết nối.
+2. Không cần USB. Góc giả lập ban đầu 0°, demo calibration 0–90°.
 3. Sau khi Connect thành công, điều khiển và UDP VR5 tự bật. Nhấn **CLOSE** để đóng tay kẹp.
 4. Nhấn **OPEN**: hình tay kẹp mở theo phản hồi mô hình.
 5. GUI không có vật giả lập; Close đi tới góc CLOSED đã cài.
@@ -214,3 +214,10 @@ Kéo thanh trượt hoặc nhập **0–1000** (0 = mở, 1000 = đóng), rồi 
 Nếu chưa cài góc hợp lệ (ví dụ OPEN và CLOSED đều bằng 0), vẫn cho kết nối để lấy góc hiện tại. Nhập/lấy góc OPEN/CLOSED rồi bấm **Save settings** để áp dụng và bật điều khiển. Không tự đo hay tự tìm cữ cơ khí. Kiểm tra giới hạn dòng, góc và thời gian chờ motor 5,2 giây vẫn được giữ.
 
 **STOP** dừng và tắt quyền điều khiển; cập nhật giao diện định kỳ không tự bật lại. Muốn tiếp tục, Disconnect/Connect lại hoặc bấm Save settings khi đã dừng để áp dụng thông số và bật điều khiển. Sau STOP không tự phát lại lệnh cũ. Disconnect đóng cả USB-CAN và UDP.
+
+
+## Kết nối nhanh ở tab Điều khiển
+
+**Real EC-A4310 — USB-CAN** đứng đầu danh sách và là chế độ mặc định khi mở ứng dụng. Hai nút **Connect real gripper** và **Connect simulator** ở tab Điều khiển tự chọn đúng chế độ rồi kết nối. Real dùng cổng USB-CAN và Motor ID đang chọn trong Cài đặt; Simulator không cần USB. Nếu chưa chọn cổng, nút Real đưa bạn tới Cài đặt để chọn.
+
+Có nút **Disconnect** ngay cạnh hai nút kết nối. Khi đang kết nối hoặc đã kết nối, hai nút Connect tạm khóa để tránh gửi yêu cầu trùng. Muốn đổi giữa motor thật và mô phỏng, bấm Disconnect trước. Khởi động ứng dụng chỉ chọn chế độ Real, không tự mở cổng hoặc phát lệnh chuyển động.

@@ -39,7 +39,7 @@ class Window(QMainWindow):
         root=QWidget(); self.setCentralWidget(root); layout=QVBoxLayout(root)
         layout.addWidget(QLabel('EC-A4310-P2-36 + Waveshare USB-CAN-A | servo position + current threshold'))
         mode_row=QHBoxLayout(); layout.addLayout(mode_row)
-        self.mode=QComboBox(); self.mode.addItem('Simulation — no USB required','simulation'); self.mode.addItem('Real EC-A4310 — USB-CAN','real'); mode_row.addWidget(self.mode)
+        self.mode=QComboBox(); self.mode.addItem('Real EC-A4310 — USB-CAN','real'); self.mode.addItem('Simulation — no USB required','simulation'); mode_row.addWidget(self.mode)
         self.allports=QCheckBox('Show ttyS / all ports'); self.allports.toggled.connect(lambda _:self.refresh_ports()); mode_row.addWidget(self.allports)
         self.jaws=JawView(); self.jaws.setMinimumHeight(240); self.jaws.object_present=False; layout.addWidget(self.jaws)
         row=QHBoxLayout(); layout.addLayout(row)
@@ -88,6 +88,16 @@ class Window(QMainWindow):
         self.overview=QLabel('Chưa kết nối'); status_row.addWidget(self.overview,1)
         settings_link=QPushButton('Cài đặt kết nối →'); settings_link.clicked.connect(lambda:self.tabs.setCurrentIndex(1)); status_row.addWidget(settings_link)
         self.monitor_button=QPushButton('Theo dõi / Nhật ký ↗'); self.monitor_button.clicked.connect(self.show_monitor); status_row.addWidget(self.monitor_button)
+        quick_row=QHBoxLayout(); control_layout.addLayout(quick_row)
+        self.connect_real=QPushButton('Connect real gripper')
+        self.connect_real.clicked.connect(lambda:self.quick_connect('real'))
+        self.connect_simulator=QPushButton('Connect simulator')
+        self.connect_simulator.clicked.connect(lambda:self.quick_connect('simulation'))
+        self.quick_disconnect=QPushButton('Disconnect')
+        self.quick_disconnect.clicked.connect(self.disconnect_btn.click)
+        for button in (self.connect_real,self.connect_simulator,self.quick_disconnect):
+            quick_row.addWidget(button)
+        self.quick_disconnect.setEnabled(False)
         control_layout.addWidget(self.jaws,1)
         self.feedback.setWordWrap(True); control_layout.addWidget(self.feedback)
         self.aperture=QLabel('Độ mở: — mm · Chưa cấu hình cơ khí'); control_layout.addWidget(self.aperture)
@@ -105,7 +115,7 @@ class Window(QMainWindow):
         for button,label,name in [(self.motion_buttons[1],'MỞ · OPEN','openButton'),(self.motion_buttons[2],'KẸP · CLOSE','closeButton'),(self.stop_btn,'DỪNG · STOP','stopButton')]:
             button.setText(label); button.setObjectName(name); button.setMinimumHeight(56); actions.addWidget(button)
         self.stop_btn.setStyleSheet('')
-        self.action_message=QLabel('Kết nối trong tab Cài đặt để tự bật điều khiển và UDP VR5.')
+        self.action_message=QLabel('Chọn Connect real gripper hoặc Connect simulator để bắt đầu.')
         self.action_message.setWordWrap(True); control_layout.addWidget(self.action_message)
         self.log.textChanged.connect(lambda:self.action_message.setText(self.log.document().lastBlock().text()))
         notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Kết nối lại hoặc Save settings để tiếp tục.')
@@ -319,10 +329,27 @@ class Window(QMainWindow):
         copy=QPushButton('Copy report'); copy.clicked.connect(lambda:QApplication.clipboard().setText(report)); box.addWidget(copy)
         close=QPushButton('Close'); close.clicked.connect(dialog.accept); box.addWidget(close)
         dialog.setAttribute(Qt.WA_DeleteOnClose); dialog.show()
+    def update_connection_buttons(self):
+        available=not self.ready and not self._connecting
+        for button in (self.connect_btn,self.connect_real,self.connect_simulator):
+            button.setEnabled(available)
+        self.quick_disconnect.setEnabled(self.ready and not self._connecting)
+        self.connect_real.setText('Đang kết nối…' if self._connecting and self.mode.currentData()=='real' else 'Connect real gripper')
+        self.connect_simulator.setText('Đang kết nối…' if self._connecting and self.mode.currentData()=='simulation' else 'Connect simulator')
+
+    def quick_connect(self,mode):
+        if self.ready or self._connecting: return
+        self.mode.setCurrentIndex(self.mode.findData(mode))
+        if mode=='real' and not self.port.currentText().strip():
+            self.tabs.setCurrentIndex(1); self.port.setFocus()
+        self.connect_motor()
+
     def connect_motor(self):
+        if self.ready or self._connecting: return
         if self.mode.currentData()=='real' and not self.port.currentText().strip(): self.log.appendPlainText('Select USB-CAN serial port'); return
         self._connecting=True; self.mode.setEnabled(False); self.connect_btn.setEnabled(False); self.backend.request('connect',port=self.port.currentText().split(' | ',1)[0].strip(),motor_id=self.mid.value() or None,mode=self.mode.currentData())
         self.backend.request('sim_object',present=False)
+        self.update_connection_buttons()
     def mode_changed(self):
         sim=self.mode.currentData()=='simulation'
         self.port.setEnabled(True); self.mid.setEnabled(not sim)
@@ -407,7 +434,7 @@ class Window(QMainWindow):
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=False; self.jaws.state=latest['state']; self.jaws.update()
             for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
             for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending)
-            self.connect_btn.setEnabled(not self.ready and not self._connecting)
+        self.update_connection_buttons()
     def closeEvent(self,event):
         self.backend.stop_requested.set(); self.backend.quit_requested.set(); self.backend.join(timeout=3)
         if self.backend.is_alive():

@@ -8,6 +8,22 @@ def fb(pos,current=0,temp=25,error='0 (OK)'):
     return dict(position=pos,current_a=current,temperature_c=temp,error=error)
 
 class ControlTests(unittest.TestCase):
+    def test_six_amp_current_limits(self):
+        Settings(open_deg=0,closed_deg=90,close_a=6,hold_a=6,contact_a=6).validate()
+        for limits in [dict(close_a=6.1,hold_a=6),dict(close_a=6,hold_a=6.1),dict(close_a=5,hold_a=6),dict(close_a=6,hold_a=6,contact_a=6.1)]:
+            with self.assertRaises(ValueError):
+                Settings(open_deg=0,closed_deg=90,**limits).validate()
+        raw=int.from_bytes(EC_A4310.pack_servo_position(63,1,6,ack=2),'big')
+        self.assertEqual((raw>>2)&0xfff,60)
+        q=Sequencer(); s=Settings(open_deg=0,closed_deg=90,close_a=6,hold_a=5,contact_a=5.5)
+        q.start(700,s,fb(0),0)
+        self.assertEqual(q.current_limit,6)
+        for i in range(1,31):
+            t=i*.05; current=.1 if t<.3 else (5.6 if t<1 else 5.0)
+            q.update(fb(min(30,t*100),current),t)
+        self.assertEqual(q.state,'HOLDING')
+        self.assertEqual(q.current_limit,5)
+
     def test_mapping_both_directions(self):
         for o,c in [(10,100),(100,10)]:
             s=Settings(open_deg=o,closed_deg=c)

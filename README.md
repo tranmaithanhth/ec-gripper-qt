@@ -118,7 +118,7 @@ Hình 2D là sơ đồ tỷ lệ, không phải CAD hoặc phép đo khe mm. Mô
 
 Driver gốc gửi servo-position 8 byte: position, speed, current threshold, ack=2. Dòng có độ phân giải 0.1 A theo driver cũ. Vòng servo nằm trong EC-A4310; Python không phát PWM/FOC.
 
-Mặc định thử: tốc độ 2 rpm ở demo, I_close=0.5 A, I_hold=0.3 A, contact=0.4 A. Khi sang motor thật, kiểm tra/chỉnh lại theo cơ cấu. Giới hạn 3 A là cap của ứng dụng cũ, không đồng nghĩa dòng an toàn cho mọi tay kẹp. Không đổi dòng sang N khi chưa hiệu chuẩn cơ cấu/cảm biến.
+Mặc định thử: tốc độ 2 rpm ở demo, I_close=0.5 A, I_hold=0.3 A, contact=0.4 A. Khi sang motor thật, kiểm tra/chỉnh lại theo cơ cấu. Giới hạn nhập dòng tối đa, dòng giữ và ngưỡng phát hiện tiếp xúc là 6 A; yêu cầu I_hold ≤ I_close và contact ≤ I_close. Đây là giới hạn của ứng dụng, không đồng nghĩa dòng an toàn cho mọi tay kẹp. Không đổi dòng sang N khi chưa hiệu chuẩn cơ cấu/cảm biến.
 
 **STOP** ngừng stream servo-position và dựa vào heartbeat motor khoảng 500 ms theo driver cũ. Đây không phải lệnh phanh/disable tức thì được xác minh; có thể làm mất lực giữ. Đỡ vật trước STOP/Disconnect/đóng cửa sổ. Chưa thử phần cứng EC thật trong môi trường tạo mã.
 

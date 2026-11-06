@@ -27,8 +27,8 @@ class Settings:
             raise ValueError('Calibration span must be 1–360 deg; confirm the mechanical travel')
         if not 0.1 <= self.speed_rpm <= 5:
             raise ValueError('Test speed must be 0.1–5 rpm')
-        if not 0.1 <= self.hold_a <= self.close_a <= 3:
-            raise ValueError('Require 0.1 <= I_hold <= I_close <= 3 A (application test cap)')
+        if not 0.1 <= self.hold_a <= self.close_a <= 6:
+            raise ValueError('Require 0.1 <= I_hold <= I_close <= 6 A (application test cap)')
         if not 0.1 <= self.contact_a <= self.close_a:
             raise ValueError('Contact threshold must be 0.1 A to I_close')
         if not 0 <= self.preload_deg <= min(5,span):

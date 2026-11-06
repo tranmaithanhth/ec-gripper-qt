@@ -20,13 +20,13 @@ class Trace(QWidget):
         super().__init__(); self.points=deque(maxlen=500); self.setMinimumHeight(140)
     def paintEvent(self,event):
         p=QPainter(self); p.fillRect(self.rect(),QColor('#ffffff'))
-        p.setPen(QColor('#334155')); p.drawText(15,22,'Actual current (A), −3 … +3; last 25 s nominal')
+        p.setPen(QColor('#334155')); p.drawText(15,22,'Actual current (A), −6 … +6; last 25 s nominal')
         p.setPen(QColor('#cbd5e1')); mid=(self.height()+30)/2
         p.drawLine(15,int(mid),self.width()-15,int(mid))
         p.setPen(QPen(QColor('#087f72'),2)); data=list(self.points)
         for i in range(1,len(data)):
             if data[i-1] is None or data[i] is None: continue
-            y1=mid-data[i-1]/3*(self.height()-50)/2; y2=mid-data[i]/3*(self.height()-50)/2
+            y1=mid-data[i-1]/6*(self.height()-50)/2; y2=mid-data[i]/6*(self.height()-50)/2
             p.drawLine(int(15+(i-1)*(self.width()-30)/500),int(y1),int(15+i*(self.width()-30)/500),int(y2))
 
 class Window(QMainWindow):
@@ -60,9 +60,9 @@ class Window(QMainWindow):
         self.close_set=QPushButton('Use current angle as CLOSED'); self.close_set.clicked.connect(lambda:self.capture(self.closed)); c.addRow(self.close_set)
         params=QGroupBox('Current thresholds — not force in N'); groups.addWidget(params); f=QFormLayout(params)
         self.speed=self.spin(f,'Speed (rpm)',.1,5,1,1)
-        self.close_a=self.spin(f,'I_close / I_open max (A)',.1,3,.5,1)
-        self.hold_a=self.spin(f,'I_hold threshold (A)',.1,3,.3,1)
-        self.contact_a=self.spin(f,'Contact detection (A)',.1,3,.4,1)
+        self.close_a=self.spin(f,'I_close / I_open max (A)',.1,6,.5,1)
+        self.hold_a=self.spin(f,'I_hold threshold (A)',.1,6,.3,1)
+        self.contact_a=self.spin(f,'Contact detection (A)',.1,6,.4,1)
         self.preload=self.spin(f,'Preload (deg)',0,5,1,2)
         self.timeout=self.spin(f,'Move timeout (s)',2,120,20,1)
         row=QHBoxLayout(); layout.addLayout(row)

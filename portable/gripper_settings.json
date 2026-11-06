@@ -19,7 +19,12 @@
     "l_mm": 0.0,
     "e_mm": 0.0,
     "doffset_mm": 0.0,
-    "selected_angles": null
+    "selected_angles": null,
+    "force": {
+      "torque_per_amp": 0,
+      "efficiency": 0.7,
+      "v_angle_deg": 149.5
+    }
   },
   "connection": {
     "port": "",

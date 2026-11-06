@@ -263,3 +263,44 @@ Nếu chưa cài góc hợp lệ (ví dụ OPEN và CLOSED đều bằng 0), v�
 **Real EC-A4310 — USB-CAN** đứng đầu danh sách và là chế độ mặc định khi mở ứng dụng. Hai nút **Connect real gripper** và **Connect simulator** ở tab Điều khiển tự chọn đúng chế độ rồi kết nối. Real dùng cổng USB-CAN và Motor ID đang chọn trong Cài đặt; Simulator không cần USB. Nếu chưa chọn cổng, nút Real đưa bạn tới Cài đặt để chọn.
 
 Có nút **Disconnect** ngay cạnh hai nút kết nối. Khi đang kết nối hoặc đã kết nối, hai nút Connect tạm khóa để tránh gửi yêu cầu trùng. Muốn đổi giữa motor thật và mô phỏng, bấm Disconnect trước. Khởi động ứng dụng chỉ chọn chế độ Real, không tự mở cổng hoặc phát lệnh chuyển động.
+
+
+
+### Estimated grip force (flat / V jaws)
+
+The Control tab displays **total contact-normal force magnitudes**, in N:
+flat jaws sum two contacts; symmetric V jaws on a round object sum four contacts.
+These are quasi-static model estimates, not force sensor readings, object-contact
+confirmation, frictional lifting force, or allowable payload. The resultant
+closing force per jaw is the same in both contact models.
+
+Set the five mechanical dimensions and encoder OPEN/CLOSED calibration first.
+Under mechanical settings, enter `K` in **output-shaft Nm per amp of CAN feedback**.
+It must correspond to the output encoder angle; do not multiply the internal
+gearbox ratio again. K defaults to zero (unknown), so force is unavailable until
+calibrated. Efficiency 0.70 and included V angle 149.5 degrees are editable initial
+model assumptions, not verified hardware specifications. Use the actual V angle.
+Save using **Lưu thông số cơ khí**. Existing settings without force parameters load
+with these defaults. Portable mode stores everything in its existing single JSON.
+
+For crank angle theta, output encoder angle q, and full gap D:
+
+```
+x = r*cos(theta) + sqrt(l*l - (e-r*sin(theta))**2)
+D = Doffset + 2*x
+J = dD/dq = 2*(-r*sin(theta) + r*cos(theta)*(e-r*sin(theta))
+              /sqrt(l*l-(e-r*sin(theta))**2)) * dtheta/dq
+F_jaw = eta*K*abs(I_feedback) / abs(J)
+F_flat_total = 2*F_jaw
+F_V_total = 2*F_jaw / sin(alpha/2)
+```
+
+Lengths in the Jacobian are converted from mm to m, angles to radians.
+`dtheta/dq` is the ratio of the solved crank stroke to the calibrated encoder
+stroke, matching the existing aperture model; this assumes an affine angle map.
+For a V jaw each of its two facets has normal force
+`F_jaw/(2*sin(alpha/2))`. Full symmetric contact is assumed; incomplete contact,
+friction, compliance and acceleration can substantially change actual forces.
+Current feedback is used, never the configured current ceiling. Missing/stale
+feedback, invalid calibration and near-dead-center positions display `— N`.
+Simulation uses synthetic current and is explicitly labelled.

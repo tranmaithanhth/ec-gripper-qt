@@ -10,6 +10,7 @@ from control import Settings
 from backend import Backend
 from visual import JawView
 from mechanics import Geometry, read_config
+from force_model import ForceCalibration, estimate_forces
 from collections import deque
 
 CONFIG=Path(__file__).with_name('hardware_settings.json')
@@ -101,6 +102,15 @@ class Window(QMainWindow):
         control_layout.addWidget(self.jaws,1)
         self.feedback.setWordWrap(True); control_layout.addWidget(self.feedback)
         self.aperture=QLabel('Độ mở: — mm · Chưa cấu hình cơ khí'); control_layout.addWidget(self.aperture)
+        force_row=QHBoxLayout()
+        self.flat_force=QLabel('Mặt phẳng · — N'); self.v_force=QLabel('Rãnh V · — N')
+        for label in (self.flat_force,self.v_force):
+            label.setStyleSheet('background:#e8f3fa; color:#163d56; border-radius:6px; padding:8px; font-size:16px; font-weight:600;')
+            force_row.addWidget(label)
+        control_layout.addLayout(force_row)
+        self.force_note=QLabel('Lực ước lượng · tổng pháp tuyến tiếp xúc'); self.force_note.setWordWrap(True)
+        control_layout.addWidget(self.force_note)
+
         position_box=QWidget(); position_layout=QVBoxLayout(position_box); position_layout.setContentsMargins(0,0,0,0)
         position_row=QHBoxLayout(); position_layout.addLayout(position_row)
         position_row.addWidget(QLabel('Vị trí · 0 mở / 1000 đóng'))
@@ -225,8 +235,20 @@ class Window(QMainWindow):
         form.addRow(self.mech_branch)
         self.mech_status=QLabel(); self.mech_status.setWordWrap(True); form.addRow(self.mech_status)
         self.target_aperture=QLabel(); self.target_aperture.setWordWrap(True); form.addRow(self.target_aperture)
+        self.force_widgets={}
+        for key,label,lo,hi,value,decimals in [
+            ('torque_per_amp','K trục ra / dòng phản hồi (Nm/A)',0,1000,0,4),
+            ('efficiency','Hiệu suất cơ cấu (giả định ban đầu)',.001,1,.70,3),
+            ('v_angle_deg','Góc trong rãnh V (°) — chỉnh theo má thực',1,180,149.5,2)]:
+            self.force_widgets[key]=self.spin(form,label,lo,hi,value,decimals)
+        force_help=QLabel('Lực = tổng độ lớn pháp tuyến: 2 tiếp xúc phẳng hoặc 4 tiếp xúc V đối xứng. '
+            'K = 0: chưa hiệu chuẩn. Nhập K tại trục ra ứng với góc encoder và dòng CAN, không nhân hộp số lần nữa. '
+            'η = 0.70 và V = 149.5° là giá trị mô hình ban đầu, cần kiểm tra theo cơ cấu thực. '
+            'Fphẳng = 2ηK|I| / |dD/dq|; FV = Fphẳng / sin(V/2). '
+            'Ước lượng tĩnh khi đã tiếp xúc; không phải cảm biến lực hay tải nâng cho phép.')
+        force_help.setWordWrap(True); form.addRow(force_help)
         self.mech_save=QPushButton('Lưu thông số cơ khí'); self.mech_save.clicked.connect(self.save_mechanics); form.addRow(self.mech_save)
-        self.mechanical_controls=list(self.mech_widgets.values())+[self.mech_branch,self.mech_save]
+        self.mechanical_controls=list(self.mech_widgets.values())+list(self.force_widgets.values())+[self.mech_branch,self.mech_save]
         for widget in self.mech_widgets.values(): widget.valueChanged.connect(self.geometry_changed)
         self.raw.valueChanged.connect(self.update_target_aperture)
         layout.addWidget(group); self.geometry_changed()
@@ -269,6 +291,8 @@ class Window(QMainWindow):
     def save_mechanics(self):
         try:
             data={key:w.value() for key,w in self.mech_widgets.items()}
+            calibration=ForceCalibration(**{key:w.value() for key,w in self.force_widgets.items()}); calibration.validate()
+            data['force']=asdict(calibration)
             data['version']=2
             data['selected_angles']=[self.geometry.crank_open_deg,self.geometry.crank_closed_deg] if self.geometry else None
             temporary=MECHANICS_CONFIG.with_suffix('.json.tmp')
@@ -279,13 +303,34 @@ class Window(QMainWindow):
     def load_mechanics(self):
         if not MECHANICS_CONFIG.exists(): return
         try:
-            g,preferred=read_config(json.loads(MECHANICS_CONFIG.read_text(encoding='utf-8')))
+            data=json.loads(MECHANICS_CONFIG.read_text(encoding='utf-8'))
+            calibration=ForceCalibration(**data.get('force',{})); calibration.validate()
+            g,preferred=read_config(data)
+            for key,w in self.force_widgets.items(): w.setValue(getattr(calibration,key))
             if any(not w.minimum()<=getattr(g,key)<=w.maximum() for key,w in self.mech_widgets.items()): raise ValueError('Thông số trong file nằm ngoài khoảng nhập hỗ trợ; file vẫn được giữ.')
             for key,w in self.mech_widgets.items():
                 w.blockSignals(True); w.setValue(getattr(g,key)); w.blockSignals(False)
             self.geometry_changed()
             if preferred and self.mech_solutions: self.mech_branch.setCurrentIndex(self.nearest_branch(preferred))
         except (ValueError,TypeError,KeyError,OSError) as exc: self.log.appendPlainText('Không nạp được cơ khí: '+str(exc))
+
+    def update_force(self,latest):
+        flat_text='Mặt phẳng · — N'; v_text='Rãnh V · — N'
+        prefix='MÔ PHỎNG · ' if self.mode.currentData()=='simulation' else ''
+        try:
+            if not self.ready or not self.fb or latest['feedback_age'] > .5:
+                raise ValueError('Chờ phản hồi dòng và vị trí mới.')
+            if not self.geometry: raise ValueError('Chưa đủ thông số cơ khí.')
+            self.settings()
+            calibration=ForceCalibration(**{key:w.value() for key,w in self.force_widgets.items()})
+            flat,v=estimate_forces(self.geometry,self.fb['position'],self.open.value(),self.closed.value(),self.fb.get('current_a'),calibration)
+            flat_text=f'Mặt phẳng · {flat:.1f} N'; v_text=f'Rãnh V · {v:.1f} N'
+            note='Ước lượng tĩnh · tổng pháp tuyến khi tiếp xúc, không phải lực đo'
+        except ValueError as exc: note=str(exc)
+        self.flat_force.setText(flat_text); self.v_force.setText(v_text)
+        self.force_note.setText(prefix+note)
+        tip='Phẳng: tổng 2 tiếp xúc. V: tổng 4 tiếp xúc đối xứng trên vật tròn. Cùng lực theo hướng đóng; V đổi hướng pháp tuyến. Không xác nhận vật đã tiếp xúc.'
+        self.flat_force.setToolTip(tip); self.v_force.setToolTip(tip)
 
     def update_aperture(self,latest):
         self.jaws.width_mm=None; self.jaws.max_mm=None; self.jaws.object_width_mm=None
@@ -446,6 +491,7 @@ class Window(QMainWindow):
             if not self.fb: self.feedback.setText('Position — | Current — | Temperature —')
             self.jaws.position=self.fb['position'] if self.fb else None
             self.update_aperture(latest)
+            self.update_force(latest)
             self.jaws.target=latest['target']; self.jaws.open_deg=self.open.value(); self.jaws.closed_deg=self.closed.value()
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=False; self.jaws.state=latest['state']; self.jaws.update()
             for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
@@ -459,6 +505,8 @@ class Window(QMainWindow):
 
 if __name__=='__main__':
     app=QApplication(sys.argv); app.setStyle('Fusion'); win=Window(); win.show(); sys.exit(app.exec())
+
+
 
 
 

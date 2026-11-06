@@ -255,7 +255,7 @@ Kéo thanh trượt hoặc nhập **0–1000** (0 = mở, 1000 = đóng), rồi 
 
 Nếu chưa cài góc hợp lệ (ví dụ OPEN và CLOSED đều bằng 0), vẫn cho kết nối để lấy góc hiện tại. Nhập/lấy góc OPEN/CLOSED rồi bấm **Save settings** để áp dụng và bật điều khiển. Không tự đo hay tự tìm cữ cơ khí. Kiểm tra giới hạn dòng, góc và thời gian chờ motor 5,2 giây vẫn được giữ.
 
-**STOP** dừng và tắt quyền điều khiển; cập nhật giao diện định kỳ không tự bật lại. Muốn tiếp tục, Disconnect/Connect lại hoặc bấm Save settings khi đã dừng để áp dụng thông số và bật điều khiển. Sau STOP không tự phát lại lệnh cũ. Disconnect đóng cả USB-CAN và UDP.
+**STOP** hủy chuyển động hiện tại, giữ kết nối và quyền điều khiển đang có. Chờ 0,6 giây cho heartbeat timeout, sau đó bấm Mở/Kẹp/Đến vị trí để gửi lệnh mới; không cần kết nối hoặc Arm lại. Lệnh cũ trong hàng đợi bị loại bỏ, không tự chạy lại. STOP không tự cấp quyền cho phiên đã bị khóa do lỗi hoặc chưa hiệu chuẩn. Disconnect vẫn đóng cả USB-CAN và UDP. Cơ chế STOP vẫn ngừng stream, không phải phanh tức thì hay giữ vật.
 
 
 ## Kết nối nhanh ở tab Điều khiển

@@ -8,7 +8,7 @@ class Backend(threading.Thread):
         self.stop_requested=threading.Event(); self.quit_requested=threading.Event()
         self.can=None; self.motor=None; self.udp=None; self.fb=None; self.fb_time=0
         self.seq=Sequencer(); self.pending=False; self.armed=False; self.settings=Settings()
-        self.last_cycle=time.monotonic(); self.last_send_time=time.monotonic(); self.power_ready_at=0; self.mode="real"
+        self.last_cycle=time.monotonic(); self.last_send_time=time.monotonic(); self.power_ready_at=0; self.stop_ready_at=0; self.mode="real"
     def request(self,kind,**kwargs): self.commands.put((kind,kwargs))
     def emit(self,kind,**kwargs): self.events.put((kind,kwargs))
     def reply(self,msg):
@@ -47,6 +47,8 @@ class Backend(threading.Thread):
         except Exception:
             self.can.close(); self.can=self.motor=self.fb=None; raise
     def move(self,raw,remote=False):
+        if self.stop_requested.is_set() or time.monotonic()<self.stop_ready_at:
+            raise RuntimeError('STOP: wait for the motor heartbeat timeout before a new command')
         if self.pending: raise RuntimeError('Busy: previous VR5 operation is pending')
         if not self.can or not self.armed: raise RuntimeError('Connect, calibrate and Arm first')
         if time.monotonic()<self.power_ready_at: raise RuntimeError('Motor startup wait not finished')
@@ -56,6 +58,22 @@ class Backend(threading.Thread):
         self.seq.start(raw,self.settings,initial,time.monotonic()); self.pending=remote
         self.fb_time=time.monotonic(); self.last_cycle=time.monotonic(); self.last_send_time=time.monotonic()
         self.emit('log',message=f'MOVE {raw} → {self.seq.target:.3f} deg; current threshold {self.seq.current_limit:.1f} A')
+    def stop_motion(self):
+        # User STOP ends only this operation. Fault/disarm/disconnect still disable control.
+        self.abort('STOP requested')
+        self.seq.target=None; self.seq.current_limit=0.; self.seq.completion=None
+        self.stop_ready_at=time.monotonic()+.6
+        # Do not replay commands queued before STOP.
+        while True:
+            try: self.commands.get_nowait()
+            except queue.Empty: break
+        if self.udp:
+            for _ in range(256):
+                try: self.udp.recvfrom(256)
+                except BlockingIOError: break
+                self.reply('GRIPPER_ABORTED')
+        self.stop_requested.clear()
+
     def receive_feedback(self,timeout=.035):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline and not self.stop_requested.is_set():
@@ -95,11 +113,7 @@ class Backend(threading.Thread):
             while not self.quit_requested.is_set():
                 cycle=time.monotonic()
                 if self.stop_requested.is_set():
-                    self.armed=False; self.abort('STOP requested'); self.stop_requested.clear()
-                    # Flush queued actions so an old MOVE cannot restart after STOP.
-                    while True:
-                        try: self.commands.get_nowait()
-                        except queue.Empty: break
+                    self.stop_motion()
                 for _ in range(10):
                     if self.stop_requested.is_set() or self.quit_requested.is_set(): break
                     try: kind,args=self.commands.get_nowait()
@@ -147,6 +161,7 @@ class Backend(threading.Thread):
                 self.last_cycle=time.monotonic()
                 self.emit('status',state=self.seq.state,armed=self.armed,connected=self.can is not None,
                     active=self.seq.active,pending=self.pending,udp=self.udp is not None,fb=self.fb,mode=self.mode,
+                    stop_wait=time.monotonic()<self.stop_ready_at,
                     feedback_age=time.monotonic()-self.fb_time,error=self.seq.error,target=self.seq.target,
                     limit=self.seq.current_limit)
                 self.quit_requested.wait(max(0,.05-(time.monotonic()-cycle)))

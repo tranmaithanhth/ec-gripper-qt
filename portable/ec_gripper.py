@@ -742,7 +742,7 @@ class Backend(threading.Thread):
         self.stop_requested=threading.Event(); self.quit_requested=threading.Event()
         self.can=None; self.motor=None; self.udp=None; self.fb=None; self.fb_time=0
         self.seq=Sequencer(); self.pending=False; self.armed=False; self.settings=Settings()
-        self.last_cycle=time.monotonic(); self.last_send_time=time.monotonic(); self.power_ready_at=0; self.mode="real"
+        self.last_cycle=time.monotonic(); self.last_send_time=time.monotonic(); self.power_ready_at=0; self.stop_ready_at=0; self.mode="real"
     def request(self,kind,**kwargs): self.commands.put((kind,kwargs))
     def emit(self,kind,**kwargs): self.events.put((kind,kwargs))
     def reply(self,msg):
@@ -780,6 +780,8 @@ class Backend(threading.Thread):
         except Exception:
             self.can.close(); self.can=self.motor=self.fb=None; raise
     def move(self,raw,remote=False):
+        if self.stop_requested.is_set() or time.monotonic()<self.stop_ready_at:
+            raise RuntimeError('STOP: wait for the motor heartbeat timeout before a new command')
         if self.pending: raise RuntimeError('Busy: previous VR5 operation is pending')
         if not self.can or not self.armed: raise RuntimeError('Connect, calibrate and Arm first')
         if time.monotonic()<self.power_ready_at: raise RuntimeError('Motor startup wait not finished')
@@ -789,6 +791,22 @@ class Backend(threading.Thread):
         self.seq.start(raw,self.settings,initial,time.monotonic()); self.pending=remote
         self.fb_time=time.monotonic(); self.last_cycle=time.monotonic(); self.last_send_time=time.monotonic()
         self.emit('log',message=f'MOVE {raw} → {self.seq.target:.3f} deg; current threshold {self.seq.current_limit:.1f} A')
+    def stop_motion(self):
+        # User STOP ends only this operation. Fault/disarm/disconnect still disable control.
+        self.abort('STOP requested')
+        self.seq.target=None; self.seq.current_limit=0.; self.seq.completion=None
+        self.stop_ready_at=time.monotonic()+.6
+        # Do not replay commands queued before STOP.
+        while True:
+            try: self.commands.get_nowait()
+            except queue.Empty: break
+        if self.udp:
+            for _ in range(256):
+                try: self.udp.recvfrom(256)
+                except BlockingIOError: break
+                self.reply('GRIPPER_ABORTED')
+        self.stop_requested.clear()
+
     def receive_feedback(self,timeout=.035):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline and not self.stop_requested.is_set():
@@ -828,11 +846,7 @@ class Backend(threading.Thread):
             while not self.quit_requested.is_set():
                 cycle=time.monotonic()
                 if self.stop_requested.is_set():
-                    self.armed=False; self.abort('STOP requested'); self.stop_requested.clear()
-                    # Flush queued actions so an old MOVE cannot restart after STOP.
-                    while True:
-                        try: self.commands.get_nowait()
-                        except queue.Empty: break
+                    self.stop_motion()
                 for _ in range(10):
                     if self.stop_requested.is_set() or self.quit_requested.is_set(): break
                     try: kind,args=self.commands.get_nowait()
@@ -880,6 +894,7 @@ class Backend(threading.Thread):
                 self.last_cycle=time.monotonic()
                 self.emit('status',state=self.seq.state,armed=self.armed,connected=self.can is not None,
                     active=self.seq.active,pending=self.pending,udp=self.udp is not None,fb=self.fb,mode=self.mode,
+                    stop_wait=time.monotonic()<self.stop_ready_at,
                     feedback_age=time.monotonic()-self.fb_time,error=self.seq.error,target=self.seq.target,
                     limit=self.seq.current_limit)
                 self.quit_requested.wait(max(0,.05-(time.monotonic()-cycle)))
@@ -1178,7 +1193,7 @@ class Window(QMainWindow):
         self.action_message=QLabel('Chọn Connect real gripper hoặc Connect simulator để bắt đầu.')
         self.action_message.setWordWrap(False); self.action_message.setFixedHeight(20); self.action_message.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed); control_layout.addWidget(self.action_message)
         self.log.textChanged.connect(self.update_action_message)
-        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Kết nối lại hoặc Save settings để tiếp tục.')
+        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Sau khi dừng, bấm Mở/Kẹp/Đến vị trí để tiếp tục.')
         notice.setWordWrap(True); notice.setObjectName('muted'); control_layout.addWidget(notice)
         self.tabs.addTab(control_page,'Điều khiển')
         settings_page=QWidget(); settings_layout=QVBoxLayout(settings_page); settings_layout.setSpacing(14)
@@ -1545,7 +1560,7 @@ class Window(QMainWindow):
             self.active=latest['active']; self.pending=latest['pending']; self.fb=latest['fb']; self.ready=latest['connected']
             target_text='—' if latest['target'] is None else f"{latest['target']:.3f} deg"
             self.overview.setText(f"{'MÔ PHỎNG' if self.mode.currentData()=='simulation' else 'ĐỘNG CƠ THẬT'} · {'Đã kết nối' if self.ready else 'Chưa kết nối'} · {latest['state']}" + (f" · {latest['error']}" if latest['error'] else ''))
-            control_text='Sẵn sàng điều khiển' if latest['armed'] else 'Điều khiển đang dừng'
+            control_text=('Đang dừng · chờ 0.6 s' if latest.get('stop_wait') else 'Sẵn sàng điều khiển') if latest['armed'] else 'Điều khiển đang dừng'
             udp_text='UDP VR5 :5050 → :5051' if latest['udp'] else 'UDP chưa bật'
             self.overview.setText(self.overview.text()+f' · {control_text} · {udp_text}')
             self.state.setText(f"{latest['state']} | {'CONNECTED' if self.ready else 'DISCONNECTED'} | {control_text} | {udp_text} | Target {target_text} | I_limit {latest['limit']:.1f} A | {latest['error']}")
@@ -1560,8 +1575,8 @@ class Window(QMainWindow):
             self.update_force(latest)
             self.jaws.target=latest['target']; self.jaws.open_deg=self.open.value(); self.jaws.closed_deg=self.closed.value()
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=False; self.jaws.state=latest['state']; self.jaws.update()
-            for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
-            for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending)
+            for widget in self.config_controls: widget.setEnabled(not self.active and (not latest['armed'] or latest['state']=='STOPPED'))
+            for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending and not latest.get('stop_wait',False))
         self.update_connection_buttons()
     def closeEvent(self,event):
         self.backend.stop_requested.set(); self.backend.quit_requested.set(); self.backend.join(timeout=3)

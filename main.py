@@ -128,7 +128,7 @@ class Window(QMainWindow):
         self.action_message=QLabel('Chọn Connect real gripper hoặc Connect simulator để bắt đầu.')
         self.action_message.setWordWrap(False); self.action_message.setFixedHeight(20); self.action_message.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed); control_layout.addWidget(self.action_message)
         self.log.textChanged.connect(self.update_action_message)
-        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Kết nối lại hoặc Save settings để tiếp tục.')
+        notice=QLabel('STOP ngừng gửi lệnh; động cơ dựa vào timeout khoảng 500 ms. Đỡ vật trước khi dừng. Sau khi dừng, bấm Mở/Kẹp/Đến vị trí để tiếp tục.')
         notice.setWordWrap(True); notice.setObjectName('muted'); control_layout.addWidget(notice)
         self.tabs.addTab(control_page,'Điều khiển')
         settings_page=QWidget(); settings_layout=QVBoxLayout(settings_page); settings_layout.setSpacing(14)
@@ -479,7 +479,7 @@ class Window(QMainWindow):
             self.active=latest['active']; self.pending=latest['pending']; self.fb=latest['fb']; self.ready=latest['connected']
             target_text='—' if latest['target'] is None else f"{latest['target']:.3f} deg"
             self.overview.setText(f"{'MÔ PHỎNG' if self.mode.currentData()=='simulation' else 'ĐỘNG CƠ THẬT'} · {'Đã kết nối' if self.ready else 'Chưa kết nối'} · {latest['state']}" + (f" · {latest['error']}" if latest['error'] else ''))
-            control_text='Sẵn sàng điều khiển' if latest['armed'] else 'Điều khiển đang dừng'
+            control_text=('Đang dừng · chờ 0.6 s' if latest.get('stop_wait') else 'Sẵn sàng điều khiển') if latest['armed'] else 'Điều khiển đang dừng'
             udp_text='UDP VR5 :5050 → :5051' if latest['udp'] else 'UDP chưa bật'
             self.overview.setText(self.overview.text()+f' · {control_text} · {udp_text}')
             self.state.setText(f"{latest['state']} | {'CONNECTED' if self.ready else 'DISCONNECTED'} | {control_text} | {udp_text} | Target {target_text} | I_limit {latest['limit']:.1f} A | {latest['error']}")
@@ -494,8 +494,8 @@ class Window(QMainWindow):
             self.update_force(latest)
             self.jaws.target=latest['target']; self.jaws.open_deg=self.open.value(); self.jaws.closed_deg=self.closed.value()
             self.jaws.mode=self.mode.currentData(); self.jaws.object_present=False; self.jaws.state=latest['state']; self.jaws.update()
-            for widget in self.config_controls: widget.setEnabled(not self.active and not latest['armed'])
-            for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending)
+            for widget in self.config_controls: widget.setEnabled(not self.active and (not latest['armed'] or latest['state']=='STOPPED'))
+            for b in self.motion_buttons: b.setEnabled(latest['armed'] and self.ready and not self.pending and not latest.get('stop_wait',False))
         self.update_connection_buttons()
     def closeEvent(self,event):
         self.backend.stop_requested.set(); self.backend.quit_requested.set(); self.backend.join(timeout=3)

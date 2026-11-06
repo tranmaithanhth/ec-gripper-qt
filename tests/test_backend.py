@@ -34,6 +34,20 @@ class BackendTests(unittest.TestCase):
             if fn(): return
             time.sleep(.01)
         self.fail('Timed out')
+
+    def test_stop_flushes_local_commands_and_does_not_rearm_faults(self):
+        b=Backend(queue.Queue())
+        b.armed=True; b.seq.active=True; b.seq.target=90
+        b.request('move',raw=1000); b.stop_requested.set()
+        b.stop_motion()
+        self.assertTrue(b.armed); self.assertFalse(b.seq.active)
+        self.assertIsNone(b.seq.target); self.assertTrue(b.commands.empty())
+        self.assertFalse(b.stop_requested.is_set())
+        with self.assertRaisesRegex(RuntimeError,'heartbeat timeout'): b.move(0)
+        # STOP must never grant permission to a disarmed/faulted session.
+        b.armed=False; b.seq.fault('test fault'); b.stop_motion()
+        self.assertFalse(b.armed)
+
     def test_disconnect_releases_udp_port(self):
         b=Backend(queue.Queue())
         b.handle('udp',dict(enabled=True))
@@ -60,11 +74,15 @@ class BackendTests(unittest.TestCase):
                 b.can.target=63;tx.sendto(b'GRIPPER_CLOSE:700',('127.0.0.1',5050))
                 self.assertEqual(rx.recvfrom(256)[0],b'GRIPPER_COMPLETE'); self.assertTrue(b.seq.active)
                 self.assertAlmostEqual(b.seq.target,63); before=len(b.can.sent);time.sleep(.15);self.assertGreater(len(b.can.sent),before)
-                b.stop_requested.set();self.wait_until(lambda:not b.seq.active);self.assertFalse(b.armed)
+                b.stop_requested.set();self.wait_until(lambda:not b.seq.active);self.assertTrue(b.armed)
                 count=len(b.can.sent);time.sleep(.15);self.assertEqual(len(b.can.sent),count)
                 tx.sendto(b'GRIPPER_OPEN',('127.0.0.1',5050));self.assertEqual(rx.recvfrom(256)[0],b'GRIPPER_ABORTED')
-                # Missing feedback during an accepted command causes ABORT and stops heartbeat.
-                b.request('arm',enabled=True);self.wait_until(lambda:b.armed)
+                # A NEW command after the stop interval works without re-arming/reconnecting.
+                self.wait_until(lambda:time.monotonic()>=b.stop_ready_at)
+                b.can.target=0;tx.sendto(b'GRIPPER_OPEN',('127.0.0.1',5050))
+                self.assertEqual(rx.recvfrom(256)[0],b'GRIPPER_COMPLETE')
+                self.assertTrue(b.armed);self.assertAlmostEqual(b.seq.target,0)
+                # Missing feedback during an accepted command still causes ABORT.
                 b.can.missing=True;tx.sendto(b'GRIPPER_CLOSE:1000',('127.0.0.1',5050))
                 self.assertEqual(rx.recvfrom(256)[0],b'GRIPPER_ABORTED');self.assertFalse(b.seq.active)
             finally:
